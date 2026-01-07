@@ -25,7 +25,7 @@ use App\Http\Controllers\Api\NotificationController;
 
 // Routes publiques
 Route::prefix('v1')->group(function () {
-    
+
     // Authentification
     Route::prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
@@ -58,9 +58,9 @@ Route::prefix('v1')->group(function () {
     Route::get('construction-projects', [ConstructionProjectController::class, 'publicIndex']);
 });
 
-// Routes protégées (nécessitent authentification)
+// Routes protégées
 Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
-    
+
     // Profil utilisateur
     Route::prefix('auth')->group(function () {
         Route::get('/profile', [AuthController::class, 'profile']);
@@ -79,7 +79,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     });
 
     // Routes PROPRIÉTAIRE
-    Route::middleware('role:proprietaire')->prefix('proprietaire')->group(function () {
+    Route::middleware('checkrole:proprietaire')->prefix('proprietaire')->group(function () {
         Route::prefix('properties')->group(function () {
             Route::get('/my-properties', [PropertyController::class, 'myProperties']);
             Route::post('/', [PropertyController::class, 'store']);
@@ -91,7 +91,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     });
 
     // Routes VISITEUR
-    Route::middleware('role:visiteur')->prefix('visiteur')->group(function () {
+    Route::middleware('checkrole:visiteur')->prefix('visiteur')->group(function () {
         // Messages
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'index']);
@@ -115,7 +115,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     });
 
     // Routes INVESTISSEUR
-    Route::middleware('role:investisseur')->prefix('investisseur')->group(function () {
+    Route::middleware('checkrole:investisseur')->prefix('investisseur')->group(function () {
         Route::prefix('investments')->group(function () {
             Route::post('/{uuid}/propose', [InvestmentProjectController::class, 'propose']);
             Route::get('/my-proposals', [InvestmentProjectController::class, 'myProposals']);
@@ -124,14 +124,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     });
 
     // Routes ENTREPRISE PARTENAIRE
-    Route::middleware('role:entreprise')->prefix('partnership')->group(function () {
+    Route::middleware('checkrole:entreprise')->prefix('partnership')->group(function () {
         Route::post('/apply', [PartnershipController::class, 'apply']);
         Route::get('/my-application', [PartnershipController::class, 'myApplication']);
         Route::put('/update', [PartnershipController::class, 'update']);
     });
 
     // Routes AGENT IMMOBILIER
-    Route::middleware('role:agent')->prefix('agent')->group(function () {
+    Route::middleware('checkrole:agent')->prefix('agent')->group(function () {
         // Propriétés assignées
         Route::prefix('properties')->group(function () {
             Route::get('/assigned', [PropertyController::class, 'assignedProperties']);
@@ -160,7 +160,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     });
 
     // Routes GESTIONNAIRE
-    Route::middleware('role:gestionnaire')->prefix('gestionnaire')->group(function () {
+    Route::middleware('checkrole:gestionnaire')->prefix('gestionnaire')->group(function () {
         // Gestion des propriétés
         Route::prefix('properties')->group(function () {
             Route::get('/pending', [PropertyController::class, 'pending']);
@@ -184,7 +184,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     });
 
     // Routes ADMINISTRATEUR
-    Route::middleware('role:admin')->prefix('admin')->group(function () {
+    Route::middleware('checkrole:admin')->prefix('admin')->group(function () {
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index']);
         Route::get('/statistics', [DashboardController::class, 'statistics']);
@@ -200,10 +200,10 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         });
 
         // Gestion des rôles
-        Route::prefix('roles')->group(function () {
-            Route::get('/', [UserManagementController::class, 'roles']);
-            Route::post('/', [UserManagementController::class, 'createRole']);
-            Route::put('/{id}', [UserManagementController::class, 'updateRole']);
+        Route::prefix('checkroles')->group(function () {
+            Route::get('/', [UserManagementController::class, 'checkroles']);
+            Route::post('/', [UserManagementController::class, 'createcheckrole']);
+            Route::put('/{id}', [UserManagementController::class, 'updatecheckrole']);
         });
 
         // Gestion complète des propriétés

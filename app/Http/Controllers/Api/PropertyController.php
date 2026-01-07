@@ -54,10 +54,10 @@ class PropertyController extends Controller
             // Recherche textuelle
             if ($request->has('search')) {
                 $search = $request->search;
-                $query->where(function($q) use ($search) {
+                $query->where(function ($q) use ($search) {
                     $q->where('title', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%")
-                      ->orWhere('address', 'like', "%{$search}%");
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%");
                 });
             }
 
@@ -74,7 +74,6 @@ class PropertyController extends Controller
                 'success' => true,
                 'data' => $properties
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -97,8 +96,8 @@ class PropertyController extends Controller
                 'media',
                 'features'
             ])->where('uuid', $uuid)
-              ->where('status', 'approved')
-              ->firstOrFail();
+                ->where('status', 'approved')
+                ->firstOrFail();
 
             // Incrémenter les vues
             $property->incrementViews();
@@ -107,7 +106,6 @@ class PropertyController extends Controller
                 'success' => true,
                 'data' => $property
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -159,6 +157,8 @@ class PropertyController extends Controller
         try {
             // Créer la propriété
             $property = Property::create([
+                'uuid' => (string) Str::uuid(),
+                'slug' => Str::slug($request->title) . '-' . Str::random(6),
                 'user_id' => $request->user()->id,
                 'property_type_id' => $request->property_type_id,
                 'title' => $request->title,
@@ -193,7 +193,7 @@ class PropertyController extends Controller
             if ($request->hasFile('images')) {
                 foreach ($request->file('images') as $index => $image) {
                     $path = $image->store('properties/' . $property->uuid, 'public');
-                    
+
                     PropertyMedia::create([
                         'property_id' => $property->id,
                         'type' => 'image',
@@ -224,7 +224,6 @@ class PropertyController extends Controller
                 'message' => 'Propriété créée avec succès. En attente de validation.',
                 'data' => $property->load(['propertyType', 'media', 'features'])
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -254,7 +253,6 @@ class PropertyController extends Controller
                 'success' => true,
                 'data' => $properties
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -302,8 +300,16 @@ class PropertyController extends Controller
             }
 
             $property->update($request->only([
-                'title', 'description', 'property_type_id', 'transaction_type',
-                'price', 'surface_area', 'bedrooms', 'bathrooms', 'address', 'city'
+                'title',
+                'description',
+                'property_type_id',
+                'transaction_type',
+                'price',
+                'surface_area',
+                'bedrooms',
+                'bathrooms',
+                'address',
+                'city'
             ]));
 
             // Mettre à jour les features si fournies
@@ -316,7 +322,6 @@ class PropertyController extends Controller
                 'message' => 'Propriété mise à jour avec succès',
                 'data' => $property->load(['propertyType', 'media', 'features'])
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -353,7 +358,6 @@ class PropertyController extends Controller
                 'success' => true,
                 'message' => 'Propriété supprimée avec succès'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -377,7 +381,6 @@ class PropertyController extends Controller
                 'success' => true,
                 'data' => $properties
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -413,7 +416,6 @@ class PropertyController extends Controller
                 'success' => true,
                 'message' => 'Propriété assignée avec succès'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -454,11 +456,10 @@ class PropertyController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => $request->status === 'approved' 
-                    ? 'Propriété approuvée avec succès' 
+                'message' => $request->status === 'approved'
+                    ? 'Propriété approuvée avec succès'
                     : 'Propriété rejetée'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
