@@ -14,7 +14,7 @@ class Partnership extends Model
         'uuid', 'user_id', 'company_name', 'company_type',
         'registration_number', 'tax_number', 'address', 'city',
         'phone', 'email', 'website', 'logo_path', 'description',
-        'services', 'certifications', 'status', 'approved_by', 'approved_at'
+        'services', 'certifications', 'status', 'approved_by', 'approved_at', 'rejection_reason'
     ];
 
     protected $casts = [

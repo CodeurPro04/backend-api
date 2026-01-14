@@ -24,7 +24,7 @@ class AuthController extends Controller
             'email' => 'required|email|unique:users,email',
             'phone' => 'nullable|string|max:20',
             'password' => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()],
-            'role' => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise',
+            'role' => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise,gestionnaire,administrateur',
         ]);
 
         if ($validator->fails()) {
@@ -35,17 +35,19 @@ class AuthController extends Controller
         }
 
         try {
-            // Récupérer le role
+            // Recuperer le role
             $role = Role::where('slug', $request->role)->first();
-            
+
             if (!$role) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Rôle invalide'
+                    'message' => 'Role invalide'
                 ], 400);
             }
 
-            // Créer l'utilisateur
+            $requiresActivation = in_array($role->slug, ['agent', 'proprietaire', 'entreprise'], true);
+
+            // Creer l'utilisateur
             $user = User::create([
                 'first_name' => $request->first_name,
                 'last_name' => $request->last_name,
@@ -53,10 +55,10 @@ class AuthController extends Controller
                 'phone' => $request->phone,
                 'password' => Hash::make($request->password),
                 'role_id' => $role->id,
-                'is_active' => true,
+                'is_active' => !$requiresActivation,
             ]);
 
-            // Log l'activité
+            // Log l'activite
             ActivityLog::create([
                 'user_id' => $user->id,
                 'action' => 'registered',
@@ -66,12 +68,33 @@ class AuthController extends Controller
                 'created_at' => now(),
             ]);
 
-            // Créer un token
+            if ($requiresActivation) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Votre compte est en attente d\'activation par un administrateur',
+                    'data' => [
+                        'user' => [
+                            'id' => $user->id,
+                            'uuid' => $user->uuid,
+                            'first_name' => $user->first_name,
+                            'last_name' => $user->last_name,
+                            'email' => $user->email,
+                            'phone' => $user->phone,
+                            'role' => $user->role->slug,
+                            'avatar' => $user->avatar,
+                            'is_active' => $user->is_active,
+                        ],
+                        'requires_activation' => true,
+                    ]
+                ], 201);
+            }
+
+            // Creer un token
             $token = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
                 'success' => true,
-                'message' => 'Inscription réussie',
+                'message' => 'Inscription reussie',
                 'data' => [
                     'user' => [
                         'id' => $user->id,
@@ -82,8 +105,10 @@ class AuthController extends Controller
                         'phone' => $user->phone,
                         'role' => $user->role->slug,
                         'avatar' => $user->avatar,
+                        'is_active' => $user->is_active,
                     ],
                     'token' => $token,
+                    'requires_activation' => false,
                 ]
             ], 201);
 
@@ -99,7 +124,7 @@ class AuthController extends Controller
     /**
      * Connexion
      */
-    public function login(Request $request)
+public function login(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'email' => 'required|email',
@@ -163,6 +188,7 @@ class AuthController extends Controller
                     'is_active' => $user->is_active,
                 ],
                 'token' => $token,
+                    'requires_activation' => false,
             ]
         ]);
     }

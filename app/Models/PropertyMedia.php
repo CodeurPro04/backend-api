@@ -19,6 +19,12 @@ class PropertyMedia extends Model
         'is_primary' => 'boolean',
     ];
 
+    protected $appends = [
+        'url',
+        'secure_url',
+        'public_url',
+    ];
+
     public function property()
     {
         return $this->belongsTo(Property::class);
@@ -26,7 +32,17 @@ class PropertyMedia extends Model
 
     public function getUrlAttribute(): string
     {
-        return Storage::url($this->file_path);
+        return Storage::disk('public')->url($this->file_path);
+    }
+
+    public function getSecureUrlAttribute(): string
+    {
+        return url('/api/v1/media/' . $this->id);
+    }
+
+    public function getPublicUrlAttribute(): string
+    {
+        return url('/api/v1/media/public/' . $this->id);
     }
 
     public function getFormattedSizeAttribute(): string

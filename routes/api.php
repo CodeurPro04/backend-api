@@ -48,6 +48,9 @@ Route::prefix('v1')->group(function () {
     Route::get('property-types', [PropertyTypeController::class, 'index']);
     Route::get('property-features', [PropertyTypeController::class, 'features']);
 
+    // Media public (annonces approuvees)
+    Route::get('media/public/{id}', [PropertyController::class, 'publicMedia']);
+
     // Projets d'investissement (public)
     Route::prefix('investments')->group(function () {
         Route::get('/', [InvestmentProjectController::class, 'index']);
@@ -56,6 +59,9 @@ Route::prefix('v1')->group(function () {
 
     // Projets de construction (liste publique)
     Route::get('construction-projects', [ConstructionProjectController::class, 'publicIndex']);
+    // Partenaires approuves (public)
+    Route::get('partnerships/approved', [PartnershipController::class, 'publicApproved']);
+
 });
 
 // Routes protégées
@@ -78,15 +84,27 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [NotificationController::class, 'destroy']);
     });
 
+    // Media securise
+    Route::get('/media/{id}', [PropertyController::class, 'media']);
+
     // Routes PROPRIÉTAIRE
     Route::middleware('checkrole:proprietaire')->prefix('proprietaire')->group(function () {
         Route::prefix('properties')->group(function () {
             Route::get('/my-properties', [PropertyController::class, 'myProperties']);
+            Route::get('/{uuid}', [PropertyController::class, 'ownerShow']);
             Route::post('/', [PropertyController::class, 'store']);
             Route::put('/{uuid}', [PropertyController::class, 'update']);
             Route::delete('/{uuid}', [PropertyController::class, 'destroy']);
             Route::post('/{uuid}/add-images', [PropertyController::class, 'addImages']);
             Route::delete('/media/{id}', [PropertyController::class, 'deleteMedia']);
+        });
+
+        Route::prefix('messages')->group(function () {
+            Route::get('/', [MessageController::class, 'ownerMessages']);
+            Route::get('/{uuid}', [MessageController::class, 'ownerShow']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'ownerReply']);
+            Route::post('/{uuid}/mark-read', [MessageController::class, 'ownerMarkRead']);
+            Route::delete('/{uuid}', [MessageController::class, 'ownerDelete']);
         });
     });
 
@@ -142,7 +160,9 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         // Messages clients
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'agentMessages']);
+            Route::post('/', [MessageController::class, 'send']);
             Route::post('/{uuid}/respond', [MessageController::class, 'respond']);
+            Route::post('/{uuid}/mark-read', [MessageController::class, 'agentMarkRead']);
         });
 
         // Demandes de recherche
@@ -197,20 +217,36 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::put('/{id}', [UserManagementController::class, 'update']);
             Route::delete('/{id}', [UserManagementController::class, 'destroy']);
             Route::post('/{id}/toggle-status', [UserManagementController::class, 'toggleStatus']);
+            Route::post('/{id}/assign-role', [UserManagementController::class, 'assignRole']);
         });
 
         // Gestion des rôles
         Route::prefix('checkroles')->group(function () {
             Route::get('/', [UserManagementController::class, 'checkroles']);
-            Route::post('/', [UserManagementController::class, 'createcheckrole']);
-            Route::put('/{id}', [UserManagementController::class, 'updatecheckrole']);
+            Route::post('/', [UserManagementController::class, 'createRole']);
+            Route::put('/{id}', [UserManagementController::class, 'updateRole']);
         });
 
         // Gestion complète des propriétés
         Route::prefix('properties')->group(function () {
-            Route::get('/all', [PropertyController::class, 'all']);
+            Route::get('/', [PropertyController::class, 'adminIndex']);
+            Route::get('/all', [PropertyController::class, 'adminIndex']);
+            Route::post('/', [PropertyController::class, 'adminStore']);
+            Route::put('/{uuid}', [PropertyController::class, 'adminUpdate']);
             Route::delete('/{uuid}', [PropertyController::class, 'forceDelete']);
             Route::post('/{uuid}/toggle-featured', [PropertyController::class, 'toggleFeatured']);
+        });
+
+
+        // Gestion des messages
+        Route::prefix('messages')->group(function () {
+            Route::get('/', [MessageController::class, 'adminIndex']);
+            Route::get('/{uuid}', [MessageController::class, 'adminShow']);
+            Route::post('/', [MessageController::class, 'adminCreate']);
+            Route::put('/{uuid}', [MessageController::class, 'adminUpdate']);
+            Route::delete('/{uuid}', [MessageController::class, 'adminDestroy']);
+            Route::post('/{uuid}/mark-read', [MessageController::class, 'adminMarkRead']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'adminReply']);
         });
 
         // Projets d'investissement
@@ -229,6 +265,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{uuid}/approve', [PartnershipController::class, 'approve']);
             Route::post('/{uuid}/reject', [PartnershipController::class, 'reject']);
             Route::get('/all', [PartnershipController::class, 'all']);
+            Route::delete('/{uuid}', [PartnershipController::class, 'destroy']);
         });
 
         // Types de propriétés

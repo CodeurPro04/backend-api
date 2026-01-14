@@ -6,43 +6,63 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Partnership;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class PartnershipController extends Controller
 {
-    // ENTREPRISE - Postuler à un partenariat
+    // ENTREPRISE - Postuler a un partenariat
     public function apply(Request $request)
     {
         $user = $request->user();
 
         $validated = $request->validate([
             'company_name' => 'required|string|max:255',
-            'contact_email' => 'required|email',
-            'contact_phone' => 'nullable|string',
-            'message' => 'nullable|string',
-            'documents' => 'nullable|array',
-            'documents.*' => 'file|mimes:pdf,doc,docx|max:5120',
+            'company_type' => 'required|string|max:255',
+            'registration_number' => 'nullable|string|max:255',
+            'tax_number' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:100',
+            'phone' => 'nullable|string|max:100',
+            'email' => 'nullable|email',
+            'website' => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'services' => 'nullable|array',
+            'services.*' => 'string',
+            'certifications' => 'nullable|array',
+            'certifications.*' => 'string',
+            'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
-        // Stocker les documents et récupérer les chemins
-        $paths = [];
-        if ($request->hasFile('documents')) {
-            foreach ($request->file('documents') as $doc) {
-                $paths[] = $doc->store('partnerships', 'public');
-            }
+        $uuid = (string) Str::uuid();
+        $logoPath = null;
+
+        if ($request->hasFile('logo')) {
+            $logoPath = $request->file('logo')->store("partnerships/{$uuid}/logo", 'public');
         }
 
         $application = Partnership::create([
-            'uuid' => (string) Str::uuid(),
+            'uuid' => $uuid,
             'user_id' => $user->id,
             'company_name' => $validated['company_name'],
-            'contact_email' => $validated['contact_email'],
-            'contact_phone' => $validated['contact_phone'] ?? null,
-            'message' => $validated['message'] ?? null,
-            'documents_paths' => json_encode($paths),
+            'company_type' => $validated['company_type'],
+            'registration_number' => $validated['registration_number'] ?? null,
+            'tax_number' => $validated['tax_number'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'city' => $validated['city'] ?? null,
+            'phone' => $validated['phone'] ?? null,
+            'email' => $validated['email'] ?? null,
+            'website' => $validated['website'] ?? null,
+            'logo_path' => $logoPath,
+            'description' => $validated['description'] ?? null,
+            'services' => $validated['services'] ?? [],
+            'certifications' => $validated['certifications'] ?? [],
             'status' => 'pending',
         ]);
 
-        return response()->json($application, 201);
+        return response()->json([
+            'success' => true,
+            'data' => $application,
+        ], 201);
     }
 
     // ENTREPRISE - Voir sa demande
@@ -51,41 +71,61 @@ class PartnershipController extends Controller
         $user = $request->user();
         $application = Partnership::where('user_id', $user->id)->latest()->first();
 
-        return response()->json($application);
+        return response()->json([
+            'success' => true,
+            'data' => $application,
+        ]);
     }
 
-    // ENTREPRISE - Mettre à jour sa demande
+    // ENTREPRISE - Mettre a jour sa demande
     public function update(Request $request)
     {
         $user = $request->user();
         $application = Partnership::where('user_id', $user->id)->latest()->firstOrFail();
 
         $validated = $request->validate([
-            'company_name' => 'sometimes|string|max:255',
-            'contact_email' => 'sometimes|email',
-            'contact_phone' => 'nullable|string',
-            'message' => 'nullable|string',
-            'documents' => 'nullable|array',
-            'documents.*' => 'file|mimes:pdf,doc,docx|max:5120',
+            'company_name' => 'sometimes|required|string|max:255',
+            'company_type' => 'sometimes|required|string|max:255',
+            'registration_number' => 'nullable|string|max:255',
+            'tax_number' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:100',
+            'phone' => 'nullable|string|max:100',
+            'email' => 'nullable|email',
+            'website' => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'services' => 'nullable|array',
+            'services.*' => 'string',
+            'certifications' => 'nullable|array',
+            'certifications.*' => 'string',
+            'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
-        if ($request->hasFile('documents')) {
-            $paths = json_decode($application->documents_paths, true) ?? [];
-            foreach ($request->file('documents') as $doc) {
-                $paths[] = $doc->store('partnerships', 'public');
+        $payload = $validated;
+        unset($payload['logo']);
+
+        if ($request->hasFile('logo')) {
+            if ($application->logo_path) {
+                Storage::disk('public')->delete($application->logo_path);
             }
-            $validated['documents_paths'] = json_encode($paths);
+            $payload['logo_path'] = $request->file('logo')->store("partnerships/{$application->uuid}/logo", 'public');
         }
 
-        $application->update($validated);
+        $application->update($payload);
 
-        return response()->json($application);
+        return response()->json([
+            'success' => true,
+            'data' => $application->fresh(),
+        ]);
     }
 
     // ADMIN - Liste demandes en attente
     public function pending()
     {
-        $applications = Partnership::where('status', 'pending')->paginate(15);
+        $applications = Partnership::with(['user', 'approver'])
+            ->where('status', 'pending')
+            ->orderBy('created_at', 'desc')
+            ->paginate(15);
         return response()->json($applications);
     }
 
@@ -94,35 +134,67 @@ class PartnershipController extends Controller
     {
         $application = Partnership::where('uuid', $uuid)->firstOrFail();
         $application->status = 'approved';
-        $application->reviewed_by = auth()->id();
-        $application->reviewed_at = now();
+        $application->approved_by = auth()->id();
+        $application->approved_at = now();
         $application->save();
 
-        return response()->json(['message' => 'Application approved']);
+        if ($application->user) {
+            $application->user->update(['is_active' => true]);
+        }
+
+        return response()->json(['success' => true]);
     }
 
     // ADMIN - Rejeter demande
     public function reject(Request $request, $uuid)
     {
-        $application = Partnership::where('uuid', $uuid)->firstOrFail();
-
         $request->validate([
             'rejection_reason' => 'required|string',
         ]);
 
+        $application = Partnership::where('uuid', $uuid)->firstOrFail();
         $application->status = 'rejected';
-        $application->reviewed_by = auth()->id();
-        $application->reviewed_at = now();
+        $application->approved_by = auth()->id();
+        $application->approved_at = now();
         $application->rejection_reason = $request->rejection_reason;
         $application->save();
 
-        return response()->json(['message' => 'Application rejected']);
+        return response()->json(['success' => true]);
+    }
+
+    // PUBLIC - Liste des partenaires approuves
+    public function publicApproved()
+    {
+        $partners = Partnership::where('status', 'approved')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $partners,
+        ]);
+    }
+
+    // ADMIN - Supprimer un partenariat
+    public function destroy($uuid)
+    {
+        $application = Partnership::where('uuid', $uuid)->firstOrFail();
+
+        if ($application->logo_path) {
+            Storage::disk('public')->delete($application->logo_path);
+        }
+
+        $application->delete();
+
+        return response()->json(['success' => true]);
     }
 
     // ADMIN - Liste toutes les demandes
     public function all()
     {
-        $applications = Partnership::paginate(20);
+        $applications = Partnership::with(['user', 'approver'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
         return response()->json($applications);
     }
 }

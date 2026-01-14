@@ -11,7 +11,7 @@ class UserManagementController extends Controller
 {
     public function index()
     {
-        $users = User::paginate(20);
+        $users = User::with('role')->paginate(20);
         return response()->json($users);
     }
 
@@ -22,26 +22,38 @@ class UserManagementController extends Controller
             'last_name' => 'required|string|max:100',
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'role' => 'required|string|exists:roles,name',
+            'role' => 'required|string|exists:roles,slug',
+            'phone' => 'nullable|string|max:20',
+            'is_active' => 'boolean',
         ]);
+
+        $role = Role::where('slug', $validated['role'])->first();
+
+        if (!$role) {
+            return response()->json(['message' => 'Rôle invalide'], 400);
+        }
 
         $user = User::create([
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
             'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
             'password' => bcrypt($validated['password']),
+            'role_id' => $role->id,
+            'is_active' => $validated['is_active'] ?? true,
         ]);
 
-        $user->assignRole($validated['role']);
+        $user->load('role');
 
         return response()->json($user, 201);
     }
 
     public function show($id)
     {
-        $user = User::with('roles')->findOrFail($id);
+        $user = User::with('role')->findOrFail($id);
         return response()->json($user);
     }
+
 
     public function update(Request $request, $id)
     {
@@ -52,7 +64,8 @@ class UserManagementController extends Controller
             'last_name' => 'sometimes|string|max:100',
             'email' => 'sometimes|email|unique:users,email,' . $id,
             'password' => 'nullable|string|min:6',
-            'role' => 'sometimes|string|exists:roles,name',
+            'role' => 'sometimes|string|exists:roles,slug',
+            'phone' => 'nullable|string|max:20',
             'is_active' => 'boolean',
         ]);
 
@@ -62,11 +75,17 @@ class UserManagementController extends Controller
             unset($validated['password']);
         }
 
-        $user->update($validated);
-
+        // Gere la mise à jour du rôle
         if (isset($validated['role'])) {
-            $user->syncRoles([$validated['role']]);
+            $role = Role::where('slug', $validated['role'])->first();
+            if ($role) {
+                $validated['role_id'] = $role->id;
+            }
+            unset($validated['role']);
         }
+
+        $user->update($validated);
+        $user->load('role');
 
         return response()->json($user);
     }
@@ -87,10 +106,41 @@ class UserManagementController extends Controller
         return response()->json(['is_active' => $user->is_active]);
     }
 
-    public function roles()
+    public function assignRole(Request $request, $id)
     {
-        $roles = Role::all();
-        return response()->json($roles);
+        $validated = $request->validate([
+            'role' => 'required|string|exists:roles,slug',
+        ]);
+
+        $user = User::findOrFail($id);
+        $role = Role::where('slug', $validated['role'])->first();
+        if (!$role) {
+            return response()->json(['message' => 'RÔle invalide'], 400);
+        }
+
+        $user->role_id = $role->id;
+        $user->save();
+        $user->load('role');
+
+        return response()->json($user);
+    }
+
+    public function checkroles()
+    {
+        try {
+            $roles = Role::all();
+
+            return response()->json([
+                'success' => true,
+                'data' => $roles
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des rôles',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function createRole(Request $request)
@@ -134,7 +184,9 @@ class UserManagementController extends Controller
     // GESTIONNAIRE - Liste agents disponibles
     public function availableAgents()
     {
-        $agents = User::role('agent')->where('is_active', true)->get();
+        $agents = User::whereHas('role', function ($query) {
+            $query->where('slug', 'agent');
+        })->where('is_active', true)->get();
         return response()->json($agents);
     }
 }

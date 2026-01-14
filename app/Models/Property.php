@@ -153,12 +153,12 @@ class Property extends Model
 
     public function isRejected(): bool
     {
-        return $this->status === 'rejected';
+        return $this->status === 'draft' && !empty($this->rejection_reason);
     }
 
     public function canBeEdited(): bool
     {
-        return in_array($this->status, ['draft', 'rejected']);
+        return in_array($this->status, ['draft', 'pending', 'rejected']);
     }
 
     public function getFormattedPriceAttribute(): string
