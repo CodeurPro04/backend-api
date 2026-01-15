@@ -16,7 +16,7 @@ class ConstructionProjectController extends Controller
     // Liste publique des projets de construction
     public function publicIndex()
     {
-        $projects = ConstructionProject::where('status', 'active')->paginate(10);
+        $projects = ConstructionProject::orderBy('created_at', 'desc')->paginate(10);
         return response()->json($projects);
     }
 
@@ -189,5 +189,20 @@ class ConstructionProjectController extends Controller
         $project->save();
 
         return response()->json(['message' => 'Agent assigned']);
+    }
+
+
+    // GESTIONNAIRE - Historique des projets assignes
+    public function managerHistory()
+    {
+        $projects = ConstructionProject::with(['user', 'agent'])
+            ->whereIn('status', ['in_study', 'in_progress', 'completed', 'closed'])
+            ->orderBy('updated_at', 'desc')
+            ->paginate(10);
+
+        return response()->json([
+            'success' => true,
+            'data' => $projects
+        ]);
     }
 }

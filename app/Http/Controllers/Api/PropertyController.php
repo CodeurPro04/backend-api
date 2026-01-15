@@ -894,5 +894,33 @@ class PropertyController extends Controller
             ], 500);
         }
     }
-}
 
+
+    /**
+     * Liste complete des proprietes (gestionnaire)
+     */
+    public function managerIndex(Request $request)
+    {
+        try {
+            $query = Property::with(['propertyType', 'user', 'agent', 'primaryImage', 'media']);
+
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            $perPage = $request->get('per_page', 15);
+            $properties = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $properties
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation des proprietes',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+}

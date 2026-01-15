@@ -218,4 +218,29 @@ class SearchRequestController extends Controller
             ], 500);
         }
     }
+
+
+    /**
+     * Historique des demandes (Gestionnaire)
+     */
+    public function managerHistory(Request $request)
+    {
+        try {
+            $requests = SearchRequest::with(['user', 'propertyType', 'agent'])
+                ->whereIn('status', ['assigned', 'in_progress', 'fulfilled'])
+                ->orderBy('updated_at', 'desc')
+                ->paginate(15);
+
+            return response()->json([
+                'success' => true,
+                'data' => $requests
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

@@ -15,27 +15,6 @@ class InvestmentProjectController extends Controller
     public function index(Request $request)
     {
         $projects = InvestmentProject::orderBy('created_at', 'desc')->paginate(12);
-        $documentPaths = $validated['documents_path'] ?? [];
-        $imagePaths = $validated['images_path'] ?? [];
-
-        if ($request->hasFile('documents')) {
-            foreach ($request->file('documents') as $file) {
-                $documentPaths[] = $file->store("investments/{$project->uuid}/documents", 'public');
-            }
-        }
-
-        if ($request->hasFile('images')) {
-            foreach ($request->file('images') as $file) {
-                $imagePaths[] = $file->store("investments/{$project->uuid}/images", 'public');
-            }
-        }
-
-        if (!empty($documentPaths) || !empty($imagePaths)) {
-            $project->update([
-                'documents_path' => $documentPaths,
-                'images_path' => $imagePaths,
-            ]);
-        }
 
         return response()->json([
             'success' => true,
@@ -43,7 +22,7 @@ class InvestmentProjectController extends Controller
         ]);
     }
 
-    // Détails d'un projet
+    // DÃ©tails d'un projet
     public function show($uuid)
     {
         $project = InvestmentProject::where('uuid', $uuid)->firstOrFail();
@@ -92,7 +71,7 @@ class InvestmentProjectController extends Controller
         ]);
     }
 
-    // Investisseur - détails proposition
+    // Investisseur - dÃ©tails proposition
     public function proposalDetails($uuid)
     {
         $proposal = InvestmentProposal::with('investmentProject')->where('uuid', $uuid)->firstOrFail();
@@ -102,9 +81,14 @@ class InvestmentProjectController extends Controller
         ]);
     }
 
-    // Admin - créer projet
+    // Admin - crÃ©er projet
     public function create(Request $request)
     {
+        if ($request->has('featured')) {
+            $request->merge([
+                'featured' => filter_var($request->input('featured'), FILTER_VALIDATE_BOOLEAN)
+            ]);
+        }
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -184,6 +168,11 @@ class InvestmentProjectController extends Controller
     // Admin - update projet
     public function update(Request $request, $uuid)
     {
+        if ($request->has('featured')) {
+            $request->merge([
+                'featured' => filter_var($request->input('featured'), FILTER_VALIDATE_BOOLEAN)
+            ]);
+        }
         $project = InvestmentProject::where('uuid', $uuid)->firstOrFail();
         $validated = $request->validate([
             'title' => 'sometimes|required|string|max:255',
@@ -319,3 +308,17 @@ class InvestmentProjectController extends Controller
         return response()->json(['success' => true]);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

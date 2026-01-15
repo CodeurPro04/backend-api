@@ -81,7 +81,7 @@ class AuthController extends Controller
                             'email' => $user->email,
                             'phone' => $user->phone,
                             'role' => $user->role->slug,
-                            'avatar' => $user->avatar,
+                                    'avatar' => $user->avatar,
                             'is_active' => $user->is_active,
                         ],
                         'requires_activation' => true,

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\SearchRequestController;
 use App\Http\Controllers\Api\PartnershipController;
 use App\Http\Controllers\Api\Admin\DashboardController;
+use App\Http\Controllers\Api\Manager\ReportController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\NotificationController;
 
@@ -179,10 +180,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         });
     });
 
-    // Routes GESTIONNAIRE
+        // Routes GESTIONNAIRE
     Route::middleware('checkrole:gestionnaire')->prefix('gestionnaire')->group(function () {
-        // Gestion des propriétés
+        // Gestion des proprietes
         Route::prefix('properties')->group(function () {
+            Route::get('/all', [PropertyController::class, 'managerIndex']);
             Route::get('/pending', [PropertyController::class, 'pending']);
             Route::post('/{uuid}/assign', [PropertyController::class, 'assign']);
         });
@@ -190,18 +192,24 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         // Gestion des demandes de recherche
         Route::prefix('search-requests')->group(function () {
             Route::get('/pending', [SearchRequestController::class, 'pending']);
+            Route::get('/history', [SearchRequestController::class, 'managerHistory']);
             Route::post('/{uuid}/assign', [SearchRequestController::class, 'assignToAgent']);
         });
 
         // Gestion des projets de construction
         Route::prefix('construction')->group(function () {
             Route::get('/pending', [ConstructionProjectController::class, 'pending']);
+            Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
             Route::post('/{uuid}/assign', [ConstructionProjectController::class, 'assign']);
         });
+
+        // Rapports
+        Route::get('/reports', [ReportController::class, 'index']);
 
         // Agents disponibles
         Route::get('/agents', [UserManagementController::class, 'availableAgents']);
     });
+
 
     // Routes ADMINISTRATEUR
     Route::middleware('checkrole:admin')->prefix('admin')->group(function () {

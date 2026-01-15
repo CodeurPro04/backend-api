@@ -5,7 +5,8 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
-use Spatie\Permission\Models\Role;
+use App\Models\Role;
+use Illuminate\Support\Str;
 
 class UserManagementController extends Controller
 {
@@ -150,11 +151,11 @@ class UserManagementController extends Controller
             'permissions' => 'nullable|array',
         ]);
 
-        $role = Role::create(['name' => $validated['name']]);
-
-        if (!empty($validated['permissions'])) {
-            $role->syncPermissions($validated['permissions']);
-        }
+        $role = Role::create([
+            'name' => $validated['name'],
+            'slug' => Str::slug($validated['name']),
+            'permissions' => $validated['permissions'] ?? [],
+        ]);
 
         return response()->json($role, 201);
     }
@@ -170,13 +171,14 @@ class UserManagementController extends Controller
 
         if (isset($validated['name'])) {
             $role->name = $validated['name'];
+            $role->slug = Str::slug($validated['name']);
+        }
+
+        if (array_key_exists('permissions', $validated)) {
+            $role->permissions = $validated['permissions'] ?? [];
         }
 
         $role->save();
-
-        if (isset($validated['permissions'])) {
-            $role->syncPermissions($validated['permissions']);
-        }
 
         return response()->json($role);
     }
