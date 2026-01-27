@@ -13,6 +13,13 @@ if (file_exists($maintenance = __DIR__.'/../storage/framework/maintenance.php'))
 // Register the Composer autoloader...
 require __DIR__.'/../vendor/autoload.php';
 
+// Ensure cURL/OpenSSL uses a valid CA bundle if provided.
+$caBundle = getenv('CURL_CA_BUNDLE') ?: getenv('SSL_CERT_FILE');
+if ($caBundle && file_exists($caBundle)) {
+    ini_set('curl.cainfo', $caBundle);
+    ini_set('openssl.cafile', $caBundle);
+}
+
 // Bootstrap Laravel and handle the request...
 /** @var Application $app */
 $app = require_once __DIR__.'/../bootstrap/app.php';

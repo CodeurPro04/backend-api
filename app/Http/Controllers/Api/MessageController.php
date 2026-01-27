@@ -76,13 +76,20 @@ class MessageController extends Controller
             ]);
 
             // Créer une notification pour le destinataire
-            Notification::create([
+                        try {
+                Notification::create([
                 'user_id' => $request->recipient_id,
                 'type' => 'message_received',
                 'title' => 'Nouveau message',
                 'message' => "Vous avez reçu un message de {$request->user()->full_name}",
                 'data' => json_encode(['message_uuid' => $message->uuid]),
             ]);
+            } catch (\Throwable $e) {
+                logger()->error('Notification message_received failed', [
+                    'error' => $e->getMessage(),
+                    'message_uuid' => $message->uuid,
+                ]);
+            }
 
             return response()->json([
                 'success' => true,

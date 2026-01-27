@@ -1,5 +1,8 @@
 <?php
 
+$caBundle = env('CURL_CA_BUNDLE') ?: env('SSL_CERT_FILE');
+$caInfo = ($caBundle && file_exists($caBundle)) ? $caBundle : null;
+
 return [
 
     /*
@@ -37,6 +40,9 @@ return [
                 'port' => env('PUSHER_PORT', 443),
                 'scheme' => env('PUSHER_SCHEME', 'https'),
                 'useTLS' => env('PUSHER_SCHEME', 'https') === 'https',
+                'curl_options' => array_filter([
+                    CURLOPT_CAINFO => $caInfo,
+                ]),
             ],
             'client_options' => [
                 // Guzzle client options if needed.

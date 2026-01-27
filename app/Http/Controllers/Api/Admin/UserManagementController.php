@@ -26,6 +26,7 @@ class UserManagementController extends Controller
             'role' => 'required|string|exists:roles,slug',
             'phone' => 'nullable|string|max:20',
             'is_active' => 'boolean',
+            'agent_type' => 'nullable|in:constructeur,immobilier,investissement',
         ]);
 
         $role = Role::where('slug', $validated['role'])->first();
@@ -41,6 +42,7 @@ class UserManagementController extends Controller
             'phone' => $validated['phone'] ?? null,
             'password' => bcrypt($validated['password']),
             'role_id' => $role->id,
+            'agent_type' => $validated['agent_type'] ?? null,
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
@@ -68,6 +70,7 @@ class UserManagementController extends Controller
             'role' => 'sometimes|string|exists:roles,slug',
             'phone' => 'nullable|string|max:20',
             'is_active' => 'boolean',
+            'agent_type' => 'nullable|in:constructeur,immobilier,investissement',
         ]);
 
         if (isset($validated['password'])) {

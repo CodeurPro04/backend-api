@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyMedia;
+use App\Models\PropertyRequest;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -49,7 +50,15 @@ class PropertyController extends Controller
 
         try {
             $property = Property::where('uuid', $uuid)->firstOrFail();
-            $property->update($request->all());
+            $payload = $request->all();
+            if (!array_key_exists('status', $payload)) {
+                $payload['status'] = 'approved';
+                $payload['rejection_reason'] = null;
+                $payload['validated_at'] = now();
+                $payload['validated_by'] = $request->user()->id;
+                $payload['published_at'] = now();
+            }
+            $property->update($payload);
 
             if ($request->has('features')) {
                 $property->features()->sync($request->features);
@@ -620,6 +629,191 @@ class PropertyController extends Controller
     }
 
     /**
+     * Creer une propriete (agent) a partir d'une demande.
+     */
+    public function agentStoreFromRequest(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'agent_comment' => 'required|string',
+            'property_type_id' => 'required|exists:property_types,id',
+            'transaction_type' => 'required|in:vente,location',
+            'price' => 'required|numeric|min:0',
+            'currency' => 'nullable|string|max:10',
+            'negotiable' => 'nullable|boolean',
+            'surface_area' => 'nullable|numeric|min:0',
+            'land_area' => 'nullable|numeric|min:0',
+            'bedrooms' => 'nullable|integer|min:0',
+            'bathrooms' => 'nullable|integer|min:0',
+            'parking_spaces' => 'nullable|integer|min:0',
+            'floor_number' => 'nullable|integer',
+            'total_floors' => 'nullable|integer',
+            'year_built' => 'nullable|integer|min:1800|max:' . date('Y'),
+            'address' => 'required|string',
+            'city' => 'required|string|max:100',
+            'commune' => 'nullable|string|max:100',
+            'quartier' => 'nullable|string|max:100',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+            'features' => 'nullable|array',
+            'features.*' => 'exists:property_features,id',
+            'images' => 'required|array|min:1',
+            'images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $propertyRequest = PropertyRequest::where('uuid', $uuid)->firstOrFail();
+        if ($propertyRequest->agent_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acces refuse'
+            ], 403);
+        }
+
+        if (!in_array($propertyRequest->status, ['assigned', 'agent_approved'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Demande non valide pour creation'
+            ], 422);
+        }
+
+        try {
+            $property = Property::create([
+                'uuid' => (string) Str::uuid(),
+                'slug' => Str::slug($request->title) . '-' . Str::random(6),
+                'user_id' => $propertyRequest->user_id,
+                'agent_id' => $request->user()->id,
+                'property_type_id' => $request->property_type_id,
+                'title' => $request->title,
+                'description' => $request->description,
+                'agent_comment' => $request->agent_comment,
+                'transaction_type' => $request->transaction_type,
+                'price' => $request->price,
+                'currency' => $request->get('currency', 'XOF'),
+                'negotiable' => $request->get('negotiable', false),
+                'surface_area' => $request->surface_area,
+                'land_area' => $request->land_area,
+                'bedrooms' => $request->bedrooms,
+                'bathrooms' => $request->bathrooms,
+                'parking_spaces' => $request->parking_spaces,
+                'floor_number' => $request->floor_number,
+                'total_floors' => $request->total_floors,
+                'year_built' => $request->year_built,
+                'address' => $request->address,
+                'city' => $request->city,
+                'commune' => $request->commune,
+                'quartier' => $request->quartier,
+                'latitude' => $request->latitude,
+                'longitude' => $request->longitude,
+                'status' => 'pending',
+            ]);
+
+            if ($request->has('features')) {
+                $property->features()->attach($request->features);
+            }
+
+            if ($request->hasFile('images')) {
+                foreach ($request->file('images') as $index => $image) {
+                    $path = $image->store('properties/' . $property->uuid, 'public');
+
+                    PropertyMedia::create([
+                        'property_id' => $property->id,
+                        'type' => 'image',
+                        'file_path' => $path,
+                        'file_name' => $image->getClientOriginalName(),
+                        'file_size' => $image->getSize(),
+                        'mime_type' => $image->getMimeType(),
+                        'order' => $index,
+                        'is_primary' => $index === 0,
+                    ]);
+                }
+            }
+
+            $propertyRequest->update([
+                'property_id' => $property->id,
+                'status' => 'property_created',
+            ]);
+
+            ActivityLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'created',
+                'model_type' => 'Property',
+                'model_id' => $property->id,
+                'description' => 'Propriete creee par agent: ' . $property->title,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'created_at' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Propriete creee avec succes. En attente de validation.',
+                'data' => $property->load(['propertyType', 'media', 'features'])
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la creation',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Valider/Rejeter une propriete (gestionnaire ou admin)
+     */
+    public function staffUpdateStatus(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|in:approved,rejected',
+            'rejection_reason' => 'required_if:status,rejected|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $property = Property::where('uuid', $uuid)->firstOrFail();
+
+            $updatePayload = [
+                'status' => $request->status,
+                'rejection_reason' => $request->status === 'rejected'
+                    ? $request->rejection_reason
+                    : null,
+                'validated_at' => now(),
+                'validated_by' => $request->user()->id,
+                'published_at' => $request->status === 'approved' ? now() : null,
+            ];
+
+            $property->update($updatePayload);
+
+            return response()->json([
+                'success' => true,
+                'message' => $request->status === 'approved'
+                    ? 'Propriete approuvee.'
+                    : 'Propriete rejetee.',
+                'data' => $property
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la validation'
+            ], 500);
+        }
+    }
+
+    /**
      * PropriÃ‡Â¸tÃ‡Â¸s assignÃ‡Â¸es (agent)
      */
     public function assignedProperties(Request $request)
@@ -649,6 +843,157 @@ class PropertyController extends Controller
     {
         $request->merge(['status' => 'draft']);
         return $this->validate($request, $uuid);
+    }
+
+    /**
+     * Liste des proprietes (agent)
+     */
+    public function agentIndex(Request $request)
+    {
+        try {
+            $query = Property::with(['propertyType', 'user', 'agent', 'primaryImage', 'media']);
+
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            if ($request->has('transaction_type')) {
+                $query->where('transaction_type', $request->transaction_type);
+            }
+
+            if ($request->has('property_type_id')) {
+                $query->where('property_type_id', $request->property_type_id);
+            }
+
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('title', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%");
+                });
+            }
+
+            $perPage = $request->get('per_page', 15);
+            $properties = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $properties
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation des proprietes',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Mettre a jour une propriete (agent)
+     */
+    public function agentUpdate(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'title' => 'sometimes|string|max:255',
+            'description' => 'sometimes|string',
+            'agent_comment' => 'nullable|string',
+            'property_type_id' => 'sometimes|exists:property_types,id',
+            'transaction_type' => 'sometimes|in:vente,location',
+            'price' => 'sometimes|numeric|min:0',
+            'surface_area' => 'nullable|numeric|min:0',
+            'land_area' => 'nullable|numeric|min:0',
+            'bedrooms' => 'nullable|integer|min:0',
+            'bathrooms' => 'nullable|integer|min:0',
+            'parking_spaces' => 'nullable|integer|min:0',
+            'floor_number' => 'nullable|integer',
+            'total_floors' => 'nullable|integer',
+            'year_built' => 'nullable|integer|min:1800|max:' . date('Y'),
+            'address' => 'sometimes|string',
+            'city' => 'sometimes|string|max:100',
+            'commune' => 'nullable|string|max:100',
+            'quartier' => 'nullable|string|max:100',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $property = Property::where('uuid', $uuid)
+                ->where('agent_id', $request->user()->id)
+                ->firstOrFail();
+
+            $payload = $request->only([
+                'title',
+                'description',
+                'agent_comment',
+                'property_type_id',
+                'transaction_type',
+                'price',
+                'surface_area',
+                'land_area',
+                'bedrooms',
+                'bathrooms',
+                'parking_spaces',
+                'floor_number',
+                'total_floors',
+                'year_built',
+                'address',
+                'city',
+                'commune',
+                'quartier',
+            ]);
+
+            // Toute modification par l'agent repasse en attente de validation staff.
+            $payload['status'] = 'pending';
+            $payload['validated_at'] = null;
+            $payload['validated_by'] = null;
+            $payload['published_at'] = null;
+            $payload['rejection_reason'] = null;
+
+            $property->update($payload);
+
+            if ($request->has('features')) {
+                $property->features()->sync($request->features);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Propriete mise a jour et repassee en attente de validation',
+                'data' => $property->load(['propertyType', 'media', 'features', 'user', 'agent'])
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la mise a jour'
+            ], 500);
+        }
+    }
+
+    /**
+     * Supprimer une propriete (agent)
+     */
+    public function agentDestroy(Request $request, $uuid)
+    {
+        try {
+            $property = Property::where('uuid', $uuid)->firstOrFail();
+            $property->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Propriete supprimee'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la suppression'
+            ], 500);
+        }
     }
 
     /**

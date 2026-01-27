@@ -12,9 +12,9 @@ class InvestmentProject extends Model
 
     protected $fillable = [
         'uuid', 'created_by', 'title', 'slug', 'description',
-        'project_type', 'location', 'city', 'total_investment',
+        'project_type', 'location', 'city', 'reference_code', 'postal_code', 'surface_area', 'total_investment',
         'min_investment', 'expected_return', 'duration_months',
-        'status', 'start_date', 'end_date', 'documents_path',
+        'status', 'approval_status', 'rejection_reason', 'start_date', 'end_date', 'documents_path',
         'images_path', 'current_funding', 'investors_count', 'featured'
     ];
 
@@ -23,6 +23,7 @@ class InvestmentProject extends Model
         'min_investment' => 'decimal:2',
         'expected_return' => 'decimal:2',
         'current_funding' => 'decimal:2',
+        'surface_area' => 'decimal:2',
         'start_date' => 'date',
         'end_date' => 'date',
         'documents_path' => 'array',

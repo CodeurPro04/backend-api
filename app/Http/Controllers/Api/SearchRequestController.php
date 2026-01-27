@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\SearchRequest;
 use App\Models\Notification;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -92,7 +93,7 @@ class SearchRequestController extends Controller
     {
         try {
             $requests = SearchRequest::with(['user', 'propertyType'])
-                ->pending()
+                ->whereIn('status', ['pending', 'approved'])
                 ->orderBy('created_at', 'desc')
                 ->paginate(15);
 
@@ -127,6 +128,13 @@ class SearchRequestController extends Controller
 
         try {
             $searchRequest = SearchRequest::where('uuid', $uuid)->firstOrFail();
+            $agent = User::findOrFail($request->agent_id);
+            if ($agent->agent_type && $agent->agent_type !== 'immobilier') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Seuls les agents immobiliers peuvent etre assignes.',
+                ], 422);
+            }
 
             $searchRequest->update([
                 'agent_id' => $request->agent_id,
@@ -152,6 +160,52 @@ class SearchRequestController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'assignation'
+            ], 500);
+        }
+    }
+
+    /**
+     * Approuver une demande (Gestionnaire/Admin)
+     */
+    public function approve(Request $request, $uuid)
+    {
+        try {
+            $searchRequest = SearchRequest::where('uuid', $uuid)->firstOrFail();
+            $searchRequest->update([
+                'status' => 'approved',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Demande approuvee'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la validation'
+            ], 500);
+        }
+    }
+
+    /**
+     * Rejeter une demande (Gestionnaire/Admin)
+     */
+    public function reject(Request $request, $uuid)
+    {
+        try {
+            $searchRequest = SearchRequest::where('uuid', $uuid)->firstOrFail();
+            $searchRequest->update([
+                'status' => 'rejected',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Demande rejetee'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors du rejet'
             ], 500);
         }
     }
@@ -227,7 +281,7 @@ class SearchRequestController extends Controller
     {
         try {
             $requests = SearchRequest::with(['user', 'propertyType', 'agent'])
-                ->whereIn('status', ['assigned', 'in_progress', 'fulfilled'])
+                ->whereIn('status', ['approved', 'rejected', 'assigned', 'in_progress', 'fulfilled'])
                 ->orderBy('updated_at', 'desc')
                 ->paginate(15);
 

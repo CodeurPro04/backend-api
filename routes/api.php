@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\InvestmentProjectController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\SearchRequestController;
 use App\Http\Controllers\Api\PartnershipController;
+use App\Http\Controllers\Api\PropertyRequestController;
+use App\Http\Controllers\Api\ClientRequestController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Manager\ReportController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
@@ -60,6 +62,9 @@ Route::prefix('v1')->group(function () {
 
     // Projets de construction (liste publique)
     Route::get('construction-projects', [ConstructionProjectController::class, 'publicIndex']);
+    Route::get('construction-projects/{uuid}', [ConstructionProjectController::class, 'publicShow']);
+    // Demandes clients (public)
+    Route::post('client-requests', [ClientRequestController::class, 'store']);
     // Partenaires approuves (public)
     Route::get('partnerships/approved', [PartnershipController::class, 'publicApproved']);
 
@@ -100,6 +105,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::delete('/media/{id}', [PropertyController::class, 'deleteMedia']);
         });
 
+        Route::prefix('property-requests')->group(function () {
+            Route::get('/', [PropertyRequestController::class, 'myRequests']);
+            Route::post('/', [PropertyRequestController::class, 'store']);
+        });
+
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'ownerMessages']);
             Route::get('/{uuid}', [MessageController::class, 'ownerShow']);
@@ -119,6 +129,10 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{uuid}/reply', [MessageController::class, 'reply']);
         });
 
+        Route::prefix('client-requests')->group(function () {
+            Route::post('/', [ClientRequestController::class, 'store']);
+        });
+
         // Demandes de recherche
         Route::prefix('search-requests')->group(function () {
             Route::get('/', [SearchRequestController::class, 'myRequests']);
@@ -136,11 +150,13 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // Routes INVESTISSEUR
     Route::middleware('checkrole:investisseur')->prefix('investisseur')->group(function () {
         Route::prefix('investments')->group(function () {
-            Route::post('/{uuid}/propose', [InvestmentProjectController::class, 'propose']);
             Route::get('/my-proposals', [InvestmentProjectController::class, 'myProposals']);
             Route::get('/proposals/{uuid}', [InvestmentProjectController::class, 'proposalDetails']);
         });
     });
+
+    // Propositions d'investissement (tous roles connectes)
+    Route::post('/investments/{uuid}/propose', [InvestmentProjectController::class, 'propose']);
 
     // Routes ENTREPRISE PARTENAIRE
     Route::middleware('checkrole:entreprise')->prefix('partnership')->group(function () {
@@ -156,6 +172,9 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/assigned', [PropertyController::class, 'assignedProperties']);
             Route::post('/{uuid}/validate', [PropertyController::class, 'validate']);
             Route::post('/{uuid}/reject', [PropertyController::class, 'reject']);
+            Route::post('/from-request/{uuid}', [PropertyController::class, 'agentStoreFromRequest']);
+            Route::get('/all', [PropertyController::class, 'agentIndex']);
+            Route::put('/{uuid}', [PropertyController::class, 'agentUpdate']);
         });
 
         // Messages clients
@@ -172,11 +191,31 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{uuid}/fulfill', [SearchRequestController::class, 'fulfill']);
         });
 
+        Route::prefix('property-requests')->group(function () {
+            Route::get('/assigned', [PropertyRequestController::class, 'assigned']);
+            Route::post('/{uuid}/approve', [PropertyRequestController::class, 'agentApprove']);
+            Route::post('/{uuid}/reject', [PropertyRequestController::class, 'agentReject']);
+        });
+
+        Route::prefix('client-requests')->group(function () {
+            Route::get('/assigned', [ClientRequestController::class, 'agentAssigned']);
+            Route::get('/history', [ClientRequestController::class, 'agentHistory']);
+        });
+
         // Projets de construction
         Route::prefix('construction')->group(function () {
             Route::get('/assigned', [ConstructionProjectController::class, 'assignedProjects']);
             Route::post('/{uuid}/quote', [ConstructionProjectController::class, 'createQuote']);
             Route::get('/quotes', [ConstructionProjectController::class, 'myQuotes']);
+            Route::get('/publications', [ConstructionProjectController::class, 'agentPublications']);
+            Route::post('/publications', [ConstructionProjectController::class, 'agentCreate']);
+            Route::put('/publications/{uuid}', [ConstructionProjectController::class, 'agentUpdate']);
+        });
+
+        Route::prefix('investments')->group(function () {
+            Route::get('/publications', [InvestmentProjectController::class, 'agentPublications']);
+            Route::post('/publications', [InvestmentProjectController::class, 'agentCreate']);
+            Route::put('/publications/{uuid}', [InvestmentProjectController::class, 'agentUpdate']);
         });
     });
 
@@ -187,6 +226,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/all', [PropertyController::class, 'managerIndex']);
             Route::get('/pending', [PropertyController::class, 'pending']);
             Route::post('/{uuid}/assign', [PropertyController::class, 'assign']);
+            Route::post('/{uuid}/status', [PropertyController::class, 'staffUpdateStatus']);
         });
 
         // Gestion des demandes de recherche
@@ -194,6 +234,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/pending', [SearchRequestController::class, 'pending']);
             Route::get('/history', [SearchRequestController::class, 'managerHistory']);
             Route::post('/{uuid}/assign', [SearchRequestController::class, 'assignToAgent']);
+            Route::post('/{uuid}/approve', [SearchRequestController::class, 'approve']);
+            Route::post('/{uuid}/reject', [SearchRequestController::class, 'reject']);
         });
 
         // Gestion des projets de construction
@@ -201,6 +243,27 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/pending', [ConstructionProjectController::class, 'pending']);
             Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
             Route::post('/{uuid}/assign', [ConstructionProjectController::class, 'assign']);
+            Route::post('/{uuid}/approve', [ConstructionProjectController::class, 'approve']);
+            Route::post('/{uuid}/reject', [ConstructionProjectController::class, 'reject']);
+            Route::post('/', [ConstructionProjectController::class, 'staffCreate']);
+            Route::put('/{uuid}', [ConstructionProjectController::class, 'staffUpdate']);
+            Route::delete('/{uuid}', [ConstructionProjectController::class, 'staffDestroy']);
+        });
+
+        Route::prefix('client-requests')->group(function () {
+            Route::get('/pending', [ClientRequestController::class, 'pending']);
+            Route::get('/history', [ClientRequestController::class, 'history']);
+            Route::post('/{uuid}/approve', [ClientRequestController::class, 'approve']);
+            Route::post('/{uuid}/reject', [ClientRequestController::class, 'reject']);
+            Route::post('/{uuid}/assign', [ClientRequestController::class, 'assign']);
+        });
+
+        Route::prefix('property-requests')->group(function () {
+            Route::get('/pending', [PropertyRequestController::class, 'pending']);
+            Route::get('/history', [PropertyRequestController::class, 'history']);
+            Route::post('/{uuid}/approve', [PropertyRequestController::class, 'approve']);
+            Route::post('/{uuid}/reject', [PropertyRequestController::class, 'reject']);
+            Route::post('/{uuid}/assign', [PropertyRequestController::class, 'assign']);
         });
 
         // Rapports
@@ -208,6 +271,16 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 
         // Agents disponibles
         Route::get('/agents', [UserManagementController::class, 'availableAgents']);
+
+        // Projets d'investissement
+        Route::prefix('investments')->group(function () {
+            Route::get('/', [InvestmentProjectController::class, 'staffIndex']);
+            Route::post('/', [InvestmentProjectController::class, 'create']);
+            Route::put('/{uuid}', [InvestmentProjectController::class, 'update']);
+            Route::delete('/{uuid}', [InvestmentProjectController::class, 'destroy']);
+            Route::post('/{uuid}/approve', [InvestmentProjectController::class, 'approveProject']);
+            Route::post('/{uuid}/reject', [InvestmentProjectController::class, 'rejectProject']);
+        });
     });
 
 
@@ -227,6 +300,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{id}/toggle-status', [UserManagementController::class, 'toggleStatus']);
             Route::post('/{id}/assign-role', [UserManagementController::class, 'assignRole']);
         });
+        Route::get('/agents', [UserManagementController::class, 'availableAgents']);
 
         // Gestion des rôles
         Route::prefix('checkroles')->group(function () {
@@ -243,6 +317,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::put('/{uuid}', [PropertyController::class, 'adminUpdate']);
             Route::delete('/{uuid}', [PropertyController::class, 'forceDelete']);
             Route::post('/{uuid}/toggle-featured', [PropertyController::class, 'toggleFeatured']);
+            Route::post('/{uuid}/status', [PropertyController::class, 'staffUpdateStatus']);
         });
 
 
@@ -259,12 +334,15 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 
         // Projets d'investissement
         Route::prefix('investments')->group(function () {
+            Route::get('/', [InvestmentProjectController::class, 'staffIndex']);
             Route::post('/', [InvestmentProjectController::class, 'create']);
             Route::put('/{uuid}', [InvestmentProjectController::class, 'update']);
             Route::delete('/{uuid}', [InvestmentProjectController::class, 'destroy']);
             Route::get('/proposals', [InvestmentProjectController::class, 'allProposals']);
             Route::post('/proposals/{uuid}/approve', [InvestmentProjectController::class, 'approveProposal']);
             Route::post('/proposals/{uuid}/reject', [InvestmentProjectController::class, 'rejectProposal']);
+            Route::post('/{uuid}/approve', [InvestmentProjectController::class, 'approveProject']);
+            Route::post('/{uuid}/reject', [InvestmentProjectController::class, 'rejectProject']);
         });
 
         // Partenariats
@@ -304,6 +382,41 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/properties', [DashboardController::class, 'propertiesReport']);
             Route::get('/users', [DashboardController::class, 'usersReport']);
             Route::get('/transactions', [DashboardController::class, 'transactionsReport']);
+        });
+
+        Route::prefix('search-requests')->group(function () {
+            Route::get('/pending', [SearchRequestController::class, 'pending']);
+            Route::get('/history', [SearchRequestController::class, 'managerHistory']);
+            Route::post('/{uuid}/assign', [SearchRequestController::class, 'assignToAgent']);
+            Route::post('/{uuid}/approve', [SearchRequestController::class, 'approve']);
+            Route::post('/{uuid}/reject', [SearchRequestController::class, 'reject']);
+        });
+
+        Route::prefix('construction')->group(function () {
+            Route::get('/pending', [ConstructionProjectController::class, 'pending']);
+            Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
+            Route::post('/{uuid}/assign', [ConstructionProjectController::class, 'assign']);
+            Route::post('/{uuid}/approve', [ConstructionProjectController::class, 'approve']);
+            Route::post('/{uuid}/reject', [ConstructionProjectController::class, 'reject']);
+            Route::post('/', [ConstructionProjectController::class, 'staffCreate']);
+            Route::put('/{uuid}', [ConstructionProjectController::class, 'staffUpdate']);
+            Route::delete('/{uuid}', [ConstructionProjectController::class, 'staffDestroy']);
+        });
+
+        Route::prefix('property-requests')->group(function () {
+            Route::get('/pending', [PropertyRequestController::class, 'pending']);
+            Route::get('/history', [PropertyRequestController::class, 'history']);
+            Route::post('/{uuid}/approve', [PropertyRequestController::class, 'approve']);
+            Route::post('/{uuid}/reject', [PropertyRequestController::class, 'reject']);
+            Route::post('/{uuid}/assign', [PropertyRequestController::class, 'assign']);
+        });
+
+        Route::prefix('client-requests')->group(function () {
+            Route::get('/pending', [ClientRequestController::class, 'pending']);
+            Route::get('/history', [ClientRequestController::class, 'history']);
+            Route::post('/{uuid}/approve', [ClientRequestController::class, 'approve']);
+            Route::post('/{uuid}/reject', [ClientRequestController::class, 'reject']);
+            Route::post('/{uuid}/assign', [ClientRequestController::class, 'assign']);
         });
     });
 });

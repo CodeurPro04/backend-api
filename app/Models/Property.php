@@ -13,7 +13,7 @@ class Property extends Model
 
     protected $fillable = [
         'uuid', 'user_id', 'agent_id', 'property_type_id', 'title', 'slug',
-        'description', 'transaction_type', 'price', 'currency', 'negotiable',
+        'description', 'agent_comment', 'transaction_type', 'price', 'currency', 'negotiable',
         'surface_area', 'land_area', 'bedrooms', 'bathrooms', 'parking_spaces',
         'floor_number', 'total_floors', 'year_built', 'address', 'city',
         'commune', 'quartier', 'latitude', 'longitude', 'status',

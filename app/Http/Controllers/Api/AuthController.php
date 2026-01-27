@@ -25,6 +25,7 @@ class AuthController extends Controller
             'phone' => 'nullable|string|max:20',
             'password' => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()],
             'role' => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise,gestionnaire,administrateur',
+            'agent_type' => 'nullable|in:constructeur,immobilier,investissement',
         ]);
 
         if ($validator->fails()) {
@@ -55,6 +56,7 @@ class AuthController extends Controller
                 'phone' => $request->phone,
                 'password' => Hash::make($request->password),
                 'role_id' => $role->id,
+                'agent_type' => $request->agent_type,
                 'is_active' => !$requiresActivation,
             ]);
 
@@ -81,6 +83,7 @@ class AuthController extends Controller
                             'email' => $user->email,
                             'phone' => $user->phone,
                             'role' => $user->role->slug,
+                                    'agent_type' => $user->agent_type,
                                     'avatar' => $user->avatar,
                             'is_active' => $user->is_active,
                         ],
@@ -104,6 +107,7 @@ class AuthController extends Controller
                         'email' => $user->email,
                         'phone' => $user->phone,
                         'role' => $user->role->slug,
+                        'agent_type' => $user->agent_type,
                         'avatar' => $user->avatar,
                         'is_active' => $user->is_active,
                     ],
@@ -184,6 +188,7 @@ public function login(Request $request)
                     'phone' => $user->phone,
                     'role' => $user->role->slug,
                     'role_name' => $user->role->name,
+                    'agent_type' => $user->agent_type,
                     'avatar' => $user->avatar,
                     'is_active' => $user->is_active,
                 ],
@@ -245,6 +250,7 @@ public function login(Request $request)
                     'phone' => $user->phone,
                     'role' => $user->role->slug,
                     'role_name' => $user->role->name,
+                    'agent_type' => $user->agent_type,
                     'avatar' => $user->avatar,
                     'email_verified_at' => $user->email_verified_at,
                     'is_active' => $user->is_active,

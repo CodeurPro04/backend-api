@@ -13,8 +13,8 @@ class ConstructionProject extends Model
     protected $fillable = [
         'uuid', 'user_id', 'agent_id', 'title', 'description',
         'project_type', 'budget_min', 'budget_max', 'surface_area',
-        'location', 'city', 'status', 'plan_3d_path', 'documents_path',
-        'estimated_duration', 'start_date', 'end_date'
+        'location', 'city', 'status', 'is_publication', 'rejection_reason', 'plan_3d_path', 'documents_path',
+        'images_path', 'plans_path', 'estimated_duration', 'start_date', 'end_date'
     ];
 
     protected $casts = [
@@ -22,6 +22,9 @@ class ConstructionProject extends Model
         'budget_max' => 'decimal:2',
         'surface_area' => 'decimal:2',
         'documents_path' => 'array',
+        'images_path' => 'array',
+        'plans_path' => 'array',
+        'is_publication' => 'boolean',
         'start_date' => 'date',
         'end_date' => 'date',
     ];
