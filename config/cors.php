@@ -19,7 +19,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:8000'],
+    'allowed_origins' => ['https://ghostwhite-seahorse-728382.hostingersite.com','https://goldenrod-wildcat-186780.hostingersite.com','http://localhost:5173', 'http://localhost:5174', 'http://localhost:8000'],
 
     'allowed_origins_patterns' => [],
 
@@ -29,6 +29,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => true,
+    'supports_credentials' => false,
 
 ];

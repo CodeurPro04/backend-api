@@ -12,17 +12,17 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->api(prepend: [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-        ]);
+    // En mode Bearer token, pas de CSRF cookie
+    // $middleware->api(prepend: [
+    //     \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+    // ]);
 
-        $middleware->alias([
-            'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
-            'checkrole' => \App\Http\Middleware\CheckRole::class,
-        ]);
+    $middleware->alias([
+        'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
+        'checkrole' => \App\Http\Middleware\CheckRole::class,
+    ]);
+})
 
-        //
-    })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
     })->create();
