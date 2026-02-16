@@ -46,8 +46,6 @@ class AuthController extends Controller
                 ], 400);
             }
 
-            $requiresActivation = in_array($role->slug, ['agent', 'proprietaire', 'entreprise'], true);
-
             // Creer l'utilisateur
             $user = User::create([
                 'first_name' => $request->first_name,
@@ -57,7 +55,7 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'role_id' => $role->id,
                 'agent_type' => $request->agent_type,
-                'is_active' => !$requiresActivation,
+                'is_active' => true,
             ]);
 
             // Log l'activite
@@ -69,28 +67,6 @@ class AuthController extends Controller
                 'user_agent' => $request->userAgent(),
                 'created_at' => now(),
             ]);
-
-            if ($requiresActivation) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Votre compte est en attente d\'activation par un administrateur',
-                    'data' => [
-                        'user' => [
-                            'id' => $user->id,
-                            'uuid' => $user->uuid,
-                            'first_name' => $user->first_name,
-                            'last_name' => $user->last_name,
-                            'email' => $user->email,
-                            'phone' => $user->phone,
-                            'role' => $user->role->slug,
-                                    'agent_type' => $user->agent_type,
-                                    'avatar' => $user->avatar,
-                            'is_active' => $user->is_active,
-                        ],
-                        'requires_activation' => true,
-                    ]
-                ], 201);
-            }
 
             // Creer un token
             $token = $user->createToken('auth_token')->plainTextToken;

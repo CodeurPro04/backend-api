@@ -14,12 +14,17 @@ class Partnership extends Model
         'uuid', 'user_id', 'company_name', 'company_type',
         'registration_number', 'tax_number', 'address', 'city',
         'phone', 'email', 'website', 'logo_path', 'description',
-        'services', 'certifications', 'status', 'approved_by', 'approved_at', 'rejection_reason'
+        'services', 'certifications',
+        'profile_title', 'profile_description', 'cover_image_path',
+        'service_offers', 'product_showcase',
+        'status', 'approved_by', 'approved_at', 'rejection_reason'
     ];
 
     protected $casts = [
         'services' => 'array',
         'certifications' => 'array',
+        'service_offers' => 'array',
+        'product_showcase' => 'array',
         'approved_at' => 'datetime',
     ];
 

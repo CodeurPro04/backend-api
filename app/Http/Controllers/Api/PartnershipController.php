@@ -10,6 +10,31 @@ use Illuminate\Support\Facades\Storage;
 
 class PartnershipController extends Controller
 {
+    private function normalizeCatalog(?array $catalog): array
+    {
+        if (!is_array($catalog)) {
+            return [];
+        }
+
+        return collect($catalog)
+            ->map(function ($item) {
+                $title = trim((string) data_get($item, 'title', ''));
+                $description = trim((string) data_get($item, 'description', ''));
+
+                if ($title === '' && $description === '') {
+                    return null;
+                }
+
+                return [
+                    'title' => $title,
+                    'description' => $description,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
     // ENTREPRISE - Postuler a un partenariat
     public function apply(Request $request)
     {
@@ -175,6 +200,19 @@ class PartnershipController extends Controller
         ]);
     }
 
+    // PUBLIC - Detail d'un partenaire approuve
+    public function publicShow($uuid)
+    {
+        $partner = Partnership::where('uuid', $uuid)
+            ->where('status', 'approved')
+            ->firstOrFail();
+
+        return response()->json([
+            'success' => true,
+            'data' => $partner,
+        ]);
+    }
+
     // ADMIN - Supprimer un partenariat
     public function destroy($uuid)
     {
@@ -196,5 +234,53 @@ class PartnershipController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate(20);
         return response()->json($applications);
+    }
+
+    // ADMIN - Mise a jour du contenu public d'un partenaire
+    public function updateContent(Request $request, $uuid)
+    {
+        $application = Partnership::where('uuid', $uuid)->firstOrFail();
+
+        $validated = $request->validate([
+            'profile_title' => 'nullable|string|max:255',
+            'profile_description' => 'nullable|string',
+            'service_offers' => 'nullable|array',
+            'service_offers.*' => 'nullable|string|max:255',
+            'product_showcase' => 'nullable|array',
+            'product_showcase.*.title' => 'nullable|string|max:255',
+            'product_showcase.*.description' => 'nullable|string',
+            'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'remove_cover_image' => 'nullable|boolean',
+        ]);
+
+        $payload = [
+            'profile_title' => $validated['profile_title'] ?? null,
+            'profile_description' => $validated['profile_description'] ?? null,
+            'service_offers' => collect($validated['service_offers'] ?? [])
+                ->map(fn ($item) => trim((string) $item))
+                ->filter()
+                ->values()
+                ->all(),
+            'product_showcase' => $this->normalizeCatalog($validated['product_showcase'] ?? []),
+        ];
+
+        if ($request->boolean('remove_cover_image') && $application->cover_image_path) {
+            Storage::disk('public')->delete($application->cover_image_path);
+            $payload['cover_image_path'] = null;
+        }
+
+        if ($request->hasFile('cover_image')) {
+            if ($application->cover_image_path) {
+                Storage::disk('public')->delete($application->cover_image_path);
+            }
+            $payload['cover_image_path'] = $request->file('cover_image')->store("partnerships/{$application->uuid}/cover", 'public');
+        }
+
+        $application->update($payload);
+
+        return response()->json([
+            'success' => true,
+            'data' => $application->fresh(),
+        ]);
     }
 }

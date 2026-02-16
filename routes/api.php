@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\SearchRequestController;
 use App\Http\Controllers\Api\PartnershipController;
 use App\Http\Controllers\Api\PropertyRequestController;
 use App\Http\Controllers\Api\ClientRequestController;
+use App\Http\Controllers\Api\HouseModelController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Manager\ReportController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
@@ -67,6 +68,10 @@ Route::prefix('v1')->group(function () {
     Route::post('client-requests', [ClientRequestController::class, 'store']);
     // Partenaires approuves (public)
     Route::get('partnerships/approved', [PartnershipController::class, 'publicApproved']);
+    Route::get('partnerships/{uuid}', [PartnershipController::class, 'publicShow']);
+    // Modeles de maison (public)
+    Route::get('house-models', [HouseModelController::class, 'index']);
+    Route::get('house-models/{identifier}', [HouseModelController::class, 'show']);
 
 });
 
@@ -351,6 +356,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{uuid}/approve', [PartnershipController::class, 'approve']);
             Route::post('/{uuid}/reject', [PartnershipController::class, 'reject']);
             Route::get('/all', [PartnershipController::class, 'all']);
+            Route::post('/{uuid}/content', [PartnershipController::class, 'updateContent']);
             Route::delete('/{uuid}', [PartnershipController::class, 'destroy']);
         });
 
@@ -417,6 +423,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{uuid}/approve', [ClientRequestController::class, 'approve']);
             Route::post('/{uuid}/reject', [ClientRequestController::class, 'reject']);
             Route::post('/{uuid}/assign', [ClientRequestController::class, 'assign']);
+        });
+
+        // Modeles de maison (admin)
+        Route::prefix('house-models')->group(function () {
+            Route::get('/', [HouseModelController::class, 'adminIndex']);
+            Route::post('/', [HouseModelController::class, 'store']);
+            Route::put('/{uuid}', [HouseModelController::class, 'update']);
+            Route::delete('/{uuid}', [HouseModelController::class, 'destroy']);
         });
     });
 });
