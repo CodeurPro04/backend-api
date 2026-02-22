@@ -7,6 +7,7 @@ use App\Models\ClientRequest;
 use App\Models\ConstructionProject;
 use App\Models\InvestmentProject;
 use App\Models\Notification;
+use App\Models\Property;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -17,6 +18,7 @@ class ClientRequestController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'property_id' => 'nullable|exists:properties,id',
+            'property_uuid' => 'nullable|exists:properties,uuid',
             'construction_project_id' => 'nullable|exists:construction_projects,id',
             'investment_project_id' => 'nullable|exists:investment_projects,id',
             'construction_uuid' => 'nullable|exists:construction_projects,uuid',
@@ -37,6 +39,11 @@ class ClientRequestController extends Controller
                 'success' => false,
                 'errors' => $validator->errors()
             ], 422);
+        }
+
+        $propertyId = $request->property_id;
+        if (!$propertyId && $request->filled('property_uuid')) {
+            $propertyId = Property::where('uuid', $request->property_uuid)->value('id');
         }
 
         $constructionId = $request->construction_project_id;
@@ -62,7 +69,7 @@ class ClientRequestController extends Controller
 
         $clientRequest = ClientRequest::create([
             'user_id' => $request->user()?->id,
-            'property_id' => $request->property_id,
+            'property_id' => $propertyId,
             'construction_project_id' => $constructionId,
             'investment_project_id' => $investmentId,
             'name' => $request->name,
@@ -207,6 +214,57 @@ class ClientRequestController extends Controller
         ]);
     }
 
+    // AGENT - approuver une demande client assignee
+    public function agentApprove(Request $request, $uuid)
+    {
+        $requestItem = ClientRequest::where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->where('status', 'assigned')
+            ->firstOrFail();
+
+        $requestItem->update([
+            'status' => 'agent_approved',
+            'approved_at' => now(),
+            'rejection_reason' => null,
+            'rejected_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demande client approuvee'
+        ]);
+    }
+
+    // AGENT - rejeter une demande client assignee
+    public function agentReject(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'rejection_reason' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $requestItem = ClientRequest::where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->where('status', 'assigned')
+            ->firstOrFail();
+
+        $requestItem->update([
+            'status' => 'agent_rejected',
+            'rejected_at' => now(),
+            'rejection_reason' => $request->rejection_reason,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demande client refusee'
+        ]);
+    }
     // AGENT - demandes clients assignees
     public function agentAssigned(Request $request)
     {
@@ -237,3 +295,4 @@ class ClientRequestController extends Controller
         ]);
     }
 }
+

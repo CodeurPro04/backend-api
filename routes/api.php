@@ -205,6 +205,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('client-requests')->group(function () {
             Route::get('/assigned', [ClientRequestController::class, 'agentAssigned']);
             Route::get('/history', [ClientRequestController::class, 'agentHistory']);
+            Route::post('/{uuid}/approve', [ClientRequestController::class, 'agentApprove']);
+            Route::post('/{uuid}/reject', [ClientRequestController::class, 'agentReject']);
         });
 
         // Projets de construction
@@ -434,3 +436,4 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         });
     });
 });
+

@@ -46,6 +46,9 @@ class AuthController extends Controller
                 ], 400);
             }
 
+            // Les comptes agent, proprietaire et entreprise necessitent une activation admin.
+            $requiresActivation = in_array($role->slug, ['agent', 'proprietaire', 'entreprise'], true);
+
             // Creer l'utilisateur
             $user = User::create([
                 'first_name' => $request->first_name,
@@ -55,7 +58,7 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'role_id' => $role->id,
                 'agent_type' => $request->agent_type,
-                'is_active' => true,
+                'is_active' => !$requiresActivation,
             ]);
 
             // Log l'activite
@@ -68,8 +71,11 @@ class AuthController extends Controller
                 'created_at' => now(),
             ]);
 
-            // Creer un token
-            $token = $user->createToken('auth_token')->plainTextToken;
+            // Creer un token uniquement pour les comptes actifs
+            $token = null;
+            if ($user->is_active) {
+                $token = $user->createToken('auth_token')->plainTextToken;
+            }
 
             return response()->json([
                 'success' => true,
@@ -88,7 +94,7 @@ class AuthController extends Controller
                         'is_active' => $user->is_active,
                     ],
                     'token' => $token,
-                    'requires_activation' => false,
+                    'requires_activation' => $requiresActivation,
                 ]
             ], 201);
 
@@ -130,7 +136,7 @@ public function login(Request $request)
         if (!$user->is_active) {
             return response()->json([
                 'success' => false,
-                'message' => 'Votre compte est désactivé'
+                'message' => 'Votre compte est inactif et en attente d\'activation par un administrateur.'
             ], 403);
         }
 
@@ -354,3 +360,6 @@ public function login(Request $request)
         }
     }
 }
+
+
+
