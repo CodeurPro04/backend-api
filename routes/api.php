@@ -207,6 +207,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/history', [ClientRequestController::class, 'agentHistory']);
             Route::post('/{uuid}/approve', [ClientRequestController::class, 'agentApprove']);
             Route::post('/{uuid}/reject', [ClientRequestController::class, 'agentReject']);
+            Route::post('/{uuid}/reports', [ClientRequestController::class, 'addAgentReport']);
+            Route::post('/{uuid}/conclude', [ClientRequestController::class, 'concludeDeal']);
         });
 
         // Projets de construction
@@ -232,6 +234,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('properties')->group(function () {
             Route::get('/all', [PropertyController::class, 'managerIndex']);
             Route::get('/pending', [PropertyController::class, 'pending']);
+            Route::post('/', [PropertyController::class, 'store']);
+            Route::put('/{uuid}', [PropertyController::class, 'update']);
             Route::post('/{uuid}/assign', [PropertyController::class, 'assign']);
             Route::post('/{uuid}/status', [PropertyController::class, 'staffUpdateStatus']);
         });

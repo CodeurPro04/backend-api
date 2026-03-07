@@ -27,16 +27,21 @@ class ClientRequest extends Model
         'project_description',
         'consent',
         'status',
+        'deal_status',
         'rejection_reason',
         'approved_at',
         'rejected_at',
         'assigned_at',
+        'deal_concluded_at',
+        'deal_sale_price',
+        'deal_closure_note',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
         'assigned_at' => 'datetime',
+        'deal_concluded_at' => 'datetime',
         'consent' => 'boolean',
     ];
 
@@ -73,5 +78,10 @@ class ClientRequest extends Model
     public function agent()
     {
         return $this->belongsTo(User::class, 'agent_id');
+    }
+
+    public function reports()
+    {
+        return $this->hasMany(ClientRequestReport::class)->orderBy('created_at');
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientRequest;
+use App\Models\ClientRequestReport;
 use App\Models\ConstructionProject;
 use App\Models\InvestmentProject;
 use App\Models\Notification;
@@ -14,6 +15,39 @@ use Illuminate\Support\Facades\Validator;
 
 class ClientRequestController extends Controller
 {
+    private function baseRelations(): array
+    {
+        return [
+            'user',
+            'property',
+            'constructionProject',
+            'investmentProject',
+            'agent',
+            'reports.agent',
+        ];
+    }
+
+    private function notifyStaff(ClientRequest $requestItem, string $title, string $message, array $extraData = []): void
+    {
+        $staffRecipients = User::whereHas('role', function ($query) {
+            $query->whereIn('slug', ['gestionnaire', 'admin']);
+        })->get();
+
+        foreach ($staffRecipients as $recipient) {
+            Notification::create([
+                'user_id' => $recipient->id,
+                'type' => 'client_request_follow_up',
+                'title' => $title,
+                'message' => $message,
+                'data' => array_merge([
+                    'request_uuid' => $requestItem->uuid,
+                    'request_type' => $requestItem->request_type,
+                    'agent_id' => $requestItem->agent_id,
+                ], $extraData),
+            ]);
+        }
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -107,7 +141,7 @@ class ClientRequestController extends Controller
 
     public function pending()
     {
-        $requests = ClientRequest::with(['user', 'property', 'constructionProject', 'investmentProject', 'agent'])
+        $requests = ClientRequest::with($this->baseRelations())
             ->whereIn('status', ['pending', 'approved'])
             ->orderBy('created_at', 'desc')
             ->paginate(15);
@@ -120,7 +154,7 @@ class ClientRequestController extends Controller
 
     public function history()
     {
-        $requests = ClientRequest::with(['user', 'property', 'constructionProject', 'investmentProject', 'agent'])
+        $requests = ClientRequest::with($this->baseRelations())
             ->whereNotIn('status', ['pending', 'approved'])
             ->orderBy('updated_at', 'desc')
             ->paginate(15);
@@ -235,6 +269,113 @@ class ClientRequestController extends Controller
         ]);
     }
 
+    public function addAgentReport(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'content' => 'required|string',
+            'summary' => 'nullable|string',
+            'client_feedback' => 'nullable|string',
+            'next_step' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $requestItem = ClientRequest::with($this->baseRelations())
+            ->where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->whereIn('status', ['assigned', 'agent_approved'])
+            ->firstOrFail();
+
+        $report = $requestItem->reports()->create([
+            'agent_id' => $request->user()->id,
+            'report_type' => 'progress_report',
+            'content' => $request->content,
+            'summary' => $request->summary,
+            'client_feedback' => $request->client_feedback,
+            'next_step' => $request->next_step,
+        ]);
+
+        $requestItem->touch();
+        $this->notifyStaff(
+            $requestItem,
+            'Nouveau rapport agent',
+            $requestItem->name ?: 'Un agent a envoye un rapport de suivi client.',
+            ['report_type' => 'progress_report']
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rapport enregistre',
+            'data' => [
+                'report' => $report->load('agent'),
+                'request' => $requestItem->fresh($this->baseRelations()),
+            ],
+        ], 201);
+    }
+
+    public function concludeDeal(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'content' => 'required|string',
+            'closure_note' => 'required|string',
+            'sale_price' => 'nullable|string|max:255',
+            'next_step' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $requestItem = ClientRequest::with($this->baseRelations())
+            ->where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->whereIn('status', ['assigned', 'agent_approved'])
+            ->firstOrFail();
+
+        $report = $requestItem->reports()->create([
+            'agent_id' => $request->user()->id,
+            'report_type' => 'final_report',
+            'content' => $request->content,
+            'next_step' => $request->next_step,
+            'sale_price' => $request->sale_price,
+            'closure_note' => $request->closure_note,
+            'concluded_at' => now(),
+        ]);
+
+        $requestItem->update([
+            'status' => 'deal_concluded',
+            'deal_status' => 'deal_concluded',
+            'deal_concluded_at' => now(),
+            'deal_sale_price' => $request->sale_price,
+            'deal_closure_note' => $request->closure_note,
+            'approved_at' => $requestItem->approved_at ?: now(),
+        ]);
+
+        $this->notifyStaff(
+            $requestItem,
+            'Offre client conclue',
+            $requestItem->name ?: 'Un agent a conclut une offre client.',
+            ['report_type' => 'final_report']
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Offre conclue',
+            'data' => [
+                'report' => $report->load('agent'),
+                'request' => $requestItem->fresh($this->baseRelations()),
+            ],
+        ], 201);
+    }
+
     // AGENT - rejeter une demande client assignee
     public function agentReject(Request $request, $uuid)
     {
@@ -268,7 +409,7 @@ class ClientRequestController extends Controller
     // AGENT - demandes clients assignees
     public function agentAssigned(Request $request)
     {
-        $requests = ClientRequest::with(['user', 'property', 'constructionProject', 'investmentProject', 'agent'])
+        $requests = ClientRequest::with($this->baseRelations())
             ->where('agent_id', $request->user()->id)
             ->where('status', 'assigned')
             ->orderBy('assigned_at', 'desc')
@@ -283,7 +424,7 @@ class ClientRequestController extends Controller
     // AGENT - historique demandes clients
     public function agentHistory(Request $request)
     {
-        $requests = ClientRequest::with(['user', 'property', 'constructionProject', 'investmentProject', 'agent'])
+        $requests = ClientRequest::with($this->baseRelations())
             ->where('agent_id', $request->user()->id)
             ->whereNotIn('status', ['pending', 'approved', 'assigned'])
             ->orderBy('updated_at', 'desc')
