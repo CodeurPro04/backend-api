@@ -253,6 +253,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('construction')->group(function () {
             Route::get('/pending', [ConstructionProjectController::class, 'pending']);
             Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
+            Route::post('/spotlight', [ConstructionProjectController::class, 'updateSpotlightContent']);
             Route::post('/{uuid}/assign', [ConstructionProjectController::class, 'assign']);
             Route::post('/{uuid}/approve', [ConstructionProjectController::class, 'approve']);
             Route::post('/{uuid}/reject', [ConstructionProjectController::class, 'reject']);
@@ -407,6 +408,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('construction')->group(function () {
             Route::get('/pending', [ConstructionProjectController::class, 'pending']);
             Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
+            Route::post('/spotlight', [ConstructionProjectController::class, 'updateSpotlightContent']);
             Route::post('/{uuid}/assign', [ConstructionProjectController::class, 'assign']);
             Route::post('/{uuid}/approve', [ConstructionProjectController::class, 'approve']);
             Route::post('/{uuid}/reject', [ConstructionProjectController::class, 'reject']);
@@ -434,6 +436,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         // Modeles de maison (admin)
         Route::prefix('house-models')->group(function () {
             Route::get('/', [HouseModelController::class, 'adminIndex']);
+            Route::post('/section', [HouseModelController::class, 'updateSection']);
             Route::post('/', [HouseModelController::class, 'store']);
             Route::put('/{uuid}', [HouseModelController::class, 'update']);
             Route::delete('/{uuid}', [HouseModelController::class, 'destroy']);

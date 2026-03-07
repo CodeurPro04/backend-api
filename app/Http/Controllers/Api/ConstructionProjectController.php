@@ -8,6 +8,7 @@ use App\Models\ConstructionProject;
 use App\Models\ConstructionQuote;
 use App\Models\Message;
 use App\Models\Notification;
+use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
@@ -21,7 +22,10 @@ class ConstructionProjectController extends Controller
             ->where('is_publication', true)
             ->orderBy('created_at', 'desc')
             ->paginate(10);
-        return response()->json($projects);
+        return response()->json(array_merge(
+            $projects->toArray(),
+            ['spotlight' => $this->getSpotlightContent()]
+        ));
     }
 
     // Details public d'un projet
@@ -35,6 +39,27 @@ class ConstructionProjectController extends Controller
         return response()->json([
             'success' => true,
             'data' => $project
+        ]);
+    }
+
+    public function updateSpotlightContent(Request $request)
+    {
+        $validated = $request->validate([
+            'section_title' => 'required|string|max:255',
+            'section_description' => 'required|string|max:2000',
+            'videos' => 'required|array|max:2',
+            'videos.*.url' => 'required|string|max:2000',
+            'videos.*.title' => 'required|string|max:255',
+            'videos.*.description' => 'required|string|max:1000',
+        ]);
+
+        Setting::set('construction_spotlight_title', $validated['section_title']);
+        Setting::set('construction_spotlight_description', $validated['section_description']);
+        Setting::set('construction_spotlight_videos', $validated['videos'], 'json');
+
+        return response()->json([
+            'success' => true,
+            'spotlight' => $this->getSpotlightContent(),
         ]);
     }
 
@@ -605,5 +630,28 @@ class ConstructionProjectController extends Controller
         $project = ConstructionProject::where('uuid', $uuid)->firstOrFail();
         $project->delete();
         return response()->json(['success' => true]);
+    }
+
+    private function getSpotlightContent(): array
+    {
+        return [
+            'title' => Setting::get('construction_spotlight_title', 'Ne ratez pas cette offre exceptionnelle'),
+            'description' => Setting::get(
+                'construction_spotlight_description',
+                'Deux offres speciales en video pour vous aider a lancer votre projet au meilleur moment.'
+            ),
+            'videos' => Setting::get('construction_spotlight_videos', [
+                [
+                    'url' => 'https://www.youtube.com/watch?v=jfKfPfyJRdk',
+                    'title' => 'Offre speciale 1',
+                    'description' => 'Decouvrez une premiere offre pour demarrer votre projet de construction.',
+                ],
+                [
+                    'url' => 'https://www.youtube.com/watch?v=tgbNymZ7vqY',
+                    'title' => 'Offre speciale 2',
+                    'description' => 'Une deuxieme opportunite video pour comparer et passer a l action.',
+                ],
+            ]),
+        ];
     }
 }

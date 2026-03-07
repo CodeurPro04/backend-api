@@ -133,13 +133,6 @@ public function login(Request $request)
             ], 401);
         }
 
-        if (!$user->is_active) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Votre compte est inactif et en attente d\'activation par un administrateur.'
-            ], 403);
-        }
-
         // Mettre à jour le dernier login
         $user->update(['last_login_at' => now()]);
 
@@ -158,7 +151,9 @@ public function login(Request $request)
 
         return response()->json([
             'success' => true,
-            'message' => 'Connexion réussie',
+            'message' => $user->is_active
+                ? 'Connexion réussie'
+                : 'Connexion réussie. Votre compte est en attente d\'activation par un administrateur.',
             'data' => [
                 'user' => [
                     'id' => $user->id,
@@ -175,7 +170,7 @@ public function login(Request $request)
                     'is_active' => $user->is_active,
                 ],
                 'token' => $token,
-                    'requires_activation' => false,
+                'requires_activation' => !$user->is_active,
             ]
         ]);
     }

@@ -26,7 +26,7 @@ class Setting extends Model
     {
         return static::updateOrCreate(
             ['key' => $key],
-            ['value' => $value, 'type' => $type]
+            ['value' => static::prepareValue($value, $type), 'type' => $type]
         );
     }
 
@@ -36,6 +36,16 @@ class Setting extends Model
             'boolean' => (bool) $value,
             'number' => is_numeric($value) ? (float) $value : $value,
             'json' => json_decode($value, true),
+            default => $value,
+        };
+    }
+
+    private static function prepareValue($value, $type)
+    {
+        return match($type) {
+            'boolean' => $value ? '1' : '0',
+            'number' => $value !== null ? (string) $value : null,
+            'json' => $value !== null ? json_encode($value, JSON_UNESCAPED_UNICODE) : null,
             default => $value,
         };
     }

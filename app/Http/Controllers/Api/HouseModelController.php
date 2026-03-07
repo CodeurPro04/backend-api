@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\HouseModel;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -19,6 +20,7 @@ class HouseModelController extends Controller
 
         return response()->json([
             'success' => true,
+            'section' => $this->getSectionContent(),
             'data' => $models->map(fn (HouseModel $model) => $this->transform($model)),
         ]);
     }
@@ -45,7 +47,31 @@ class HouseModelController extends Controller
 
         return response()->json([
             'success' => true,
+            'section' => $this->getSectionContent(),
             'data' => $models->map(fn (HouseModel $model) => $this->transform($model)),
+        ]);
+    }
+
+    public function updateSection(Request $request)
+    {
+        $validated = $request->validate([
+            'section_title' => 'required|string|max:255',
+            'section_description' => 'required|string|max:2000',
+            'video_urls' => 'nullable|array',
+            'video_urls.*' => 'nullable|string|max:2000',
+        ]);
+
+        Setting::set('house_models_section_title', $validated['section_title']);
+        Setting::set('house_models_section_description', $validated['section_description']);
+        Setting::set(
+            'house_models_section_videos',
+            array_values(array_filter($validated['video_urls'] ?? [], fn ($url) => filled($url))),
+            'json'
+        );
+
+        return response()->json([
+            'success' => true,
+            'section' => $this->getSectionContent(),
         ]);
     }
 
@@ -227,6 +253,20 @@ class HouseModelController extends Controller
         ];
     }
 
+    private function getSectionContent(): array
+    {
+        return [
+            'title' => Setting::get('house_models_section_title', 'Modeles de maison'),
+            'description' => Setting::get(
+                'house_models_section_description',
+                'Decouvrez nos modeles de maison, pensés pour allier style, confort et fonctionnalite dans chaque projet.'
+            ),
+            'videos' => Setting::get('house_models_section_videos', [
+                'https://www.youtube.com/watch?v=tgbNymZ7vqY',
+            ]),
+        ];
+    }
+
     private function resolveMediaUrl(?string $path): ?string
     {
         if (!$path) {
@@ -241,4 +281,3 @@ class HouseModelController extends Controller
         return url('/storage/' . ltrim($cleaned, '/'));
     }
 }
-
