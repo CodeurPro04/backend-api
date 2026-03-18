@@ -66,7 +66,8 @@ Route::prefix('v1')->group(function () {
     Route::get('construction-projects/{uuid}', [ConstructionProjectController::class, 'publicShow']);
     // Demandes clients (public)
     Route::post('client-requests', [ClientRequestController::class, 'store']);
-    // Partenaires approuves (public)
+    // Partenaires (public)
+    Route::post('partnerships/apply', [PartnershipController::class, 'publicApply']);
     Route::get('partnerships/approved', [PartnershipController::class, 'publicApproved']);
     Route::get('partnerships/{uuid}', [PartnershipController::class, 'publicShow']);
     // Modeles de maison (public)

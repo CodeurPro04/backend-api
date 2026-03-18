@@ -14,7 +14,7 @@ class ConstructionProject extends Model
         'uuid', 'user_id', 'agent_id', 'title', 'description',
         'project_type', 'budget_min', 'budget_max', 'surface_area',
         'location', 'city', 'status', 'is_publication', 'rejection_reason', 'plan_3d_path', 'documents_path',
-        'images_path', 'plans_path', 'estimated_duration', 'start_date', 'end_date'
+        'images_path', 'plans_path', 'render_3d_path', 'estimated_duration', 'start_date', 'end_date'
     ];
 
     protected $casts = [
@@ -24,6 +24,7 @@ class ConstructionProject extends Model
         'documents_path' => 'array',
         'images_path' => 'array',
         'plans_path' => 'array',
+        'render_3d_path' => 'array',
         'is_publication' => 'boolean',
         'start_date' => 'date',
         'end_date' => 'date',

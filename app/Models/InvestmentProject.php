@@ -15,7 +15,7 @@ class InvestmentProject extends Model
         'project_type', 'location', 'city', 'reference_code', 'postal_code', 'surface_area', 'total_investment',
         'min_investment', 'expected_return', 'duration_months',
         'status', 'approval_status', 'rejection_reason', 'start_date', 'end_date', 'documents_path',
-        'images_path', 'current_funding', 'investors_count', 'featured'
+        'images_path', 'plans_path', 'render_3d_path', 'current_funding', 'investors_count', 'featured'
     ];
 
     protected $casts = [
@@ -28,6 +28,8 @@ class InvestmentProject extends Model
         'end_date' => 'date',
         'documents_path' => 'array',
         'images_path' => 'array',
+        'plans_path' => 'array',
+        'render_3d_path' => 'array',
         'featured' => 'boolean',
     ];
 

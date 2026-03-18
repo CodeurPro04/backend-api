@@ -11,7 +11,7 @@ class PropertyMedia extends Model
     use HasFactory;
 
     protected $fillable = [
-        'property_id', 'type', 'file_path', 'file_name',
+        'property_id', 'type', 'category', 'file_path', 'file_name',
         'file_size', 'mime_type', 'order', 'is_primary'
     ];
 

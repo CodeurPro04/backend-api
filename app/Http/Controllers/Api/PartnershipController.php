@@ -3,10 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Models\ActivityLog;
 use App\Models\Partnership;
-use Illuminate\Support\Str;
+use App\Models\Role;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class PartnershipController extends Controller
 {
@@ -35,12 +40,14 @@ class PartnershipController extends Controller
             ->all();
     }
 
-    // ENTREPRISE - Postuler a un partenariat
-    public function apply(Request $request)
+    private function partnershipRules(bool $requireEmail = true, bool $emailUniqueOnUsers = false): array
     {
-        $user = $request->user();
+        $emailRule = $requireEmail ? 'required|email' : 'nullable|email';
+        if ($emailUniqueOnUsers) {
+            $emailRule .= '|unique:users,email';
+        }
 
-        $validated = $request->validate([
+        return [
             'company_name' => 'required|string|max:255',
             'company_type' => 'required|string|max:255',
             'registration_number' => 'nullable|string|max:255',
@@ -48,7 +55,7 @@ class PartnershipController extends Controller
             'address' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:100',
             'phone' => 'nullable|string|max:100',
-            'email' => 'nullable|email',
+            'email' => $emailRule,
             'website' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'services' => 'nullable|array',
@@ -56,18 +63,19 @@ class PartnershipController extends Controller
             'certifications' => 'nullable|array',
             'certifications.*' => 'string',
             'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
-        ]);
+        ];
+    }
 
-        $uuid = (string) Str::uuid();
-        $logoPath = null;
+    private function generateDefaultPassword(): string
+    {
+        return 'Abi@' . strtoupper(Str::random(2)) . random_int(100000, 999999);
+    }
 
-        if ($request->hasFile('logo')) {
-            $logoPath = $request->file('logo')->store("partnerships/{$uuid}/logo", 'public');
-        }
-
-        $application = Partnership::create([
-            'uuid' => $uuid,
-            'user_id' => $user->id,
+    private function createPartnershipRecord(array $validated, int $userId, ?string $logoPath = null): Partnership
+    {
+        return Partnership::create([
+            'uuid' => (string) Str::uuid(),
+            'user_id' => $userId,
             'company_name' => $validated['company_name'],
             'company_type' => $validated['company_type'],
             'registration_number' => $validated['registration_number'] ?? null,
@@ -83,6 +91,91 @@ class PartnershipController extends Controller
             'certifications' => $validated['certifications'] ?? [],
             'status' => 'pending',
         ]);
+    }
+
+    public function publicApply(Request $request)
+    {
+        $validated = $request->validate($this->partnershipRules(true, true));
+
+        $role = Role::where('slug', 'entreprise')->first();
+        if (!$role) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Le role entreprise est introuvable.',
+            ], 500);
+        }
+
+        $defaultPassword = $this->generateDefaultPassword();
+        $logoPath = null;
+
+        DB::beginTransaction();
+
+        try {
+            $user = User::create([
+                'first_name' => $validated['company_name'],
+                'last_name' => 'Entreprise',
+                'email' => $validated['email'],
+                'phone' => $validated['phone'] ?? null,
+                'password' => Hash::make($defaultPassword),
+                'role_id' => $role->id,
+                'is_active' => false,
+            ]);
+
+            if ($request->hasFile('logo')) {
+                $logoPath = $request->file('logo')->store("partnerships/{$user->uuid}/logo", 'public');
+            }
+
+            $application = $this->createPartnershipRecord($validated, $user->id, $logoPath);
+
+            ActivityLog::create([
+                'user_id' => $user->id,
+                'action' => 'registered',
+                'description' => 'Compte entreprise cree depuis le formulaire partenariat',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'created_at' => now(),
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Demande partenaire envoyee et compte entreprise cree.',
+                'data' => $application,
+                'account' => [
+                    'email' => $user->email,
+                    'default_password' => $defaultPassword,
+                    'requires_activation' => true,
+                ],
+            ], 201);
+        } catch (\Throwable $exception) {
+            DB::rollBack();
+
+            if ($logoPath) {
+                Storage::disk('public')->delete($logoPath);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la creation du compte partenaire.',
+                'error' => $exception->getMessage(),
+            ], 500);
+        }
+    }
+
+    // ENTREPRISE - Postuler a un partenariat
+    public function apply(Request $request)
+    {
+        $user = $request->user();
+        $validated = $request->validate($this->partnershipRules(true, false));
+
+        $logoPath = null;
+
+        if ($request->hasFile('logo')) {
+            $logoPath = $request->file('logo')->store("partnerships/{$user->uuid}/logo", 'public');
+        }
+
+        $application = $this->createPartnershipRecord($validated, $user->id, $logoPath);
 
         return response()->json([
             'success' => true,
@@ -108,23 +201,7 @@ class PartnershipController extends Controller
         $user = $request->user();
         $application = Partnership::where('user_id', $user->id)->latest()->firstOrFail();
 
-        $validated = $request->validate([
-            'company_name' => 'sometimes|required|string|max:255',
-            'company_type' => 'sometimes|required|string|max:255',
-            'registration_number' => 'nullable|string|max:255',
-            'tax_number' => 'nullable|string|max:255',
-            'address' => 'nullable|string|max:255',
-            'city' => 'nullable|string|max:100',
-            'phone' => 'nullable|string|max:100',
-            'email' => 'nullable|email',
-            'website' => 'nullable|string|max:255',
-            'description' => 'nullable|string',
-            'services' => 'nullable|array',
-            'services.*' => 'string',
-            'certifications' => 'nullable|array',
-            'certifications.*' => 'string',
-            'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
-        ]);
+        $validated = $request->validate($this->partnershipRules(true, false));
 
         $payload = $validated;
         unset($payload['logo']);
@@ -136,10 +213,17 @@ class PartnershipController extends Controller
             $payload['logo_path'] = $request->file('logo')->store("partnerships/{$application->uuid}/logo", 'public');
         }
 
+        $payload['status'] = 'pending';
+        $payload['approved_by'] = null;
+        $payload['approved_at'] = null;
+        $payload['rejection_reason'] = null;
+
         $application->update($payload);
+        $user->update(['is_active' => false]);
 
         return response()->json([
             'success' => true,
+            'message' => 'Demande mise a jour. Le compte repasse en attente de validation administrateur.',
             'data' => $application->fresh(),
         ]);
     }

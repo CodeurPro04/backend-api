@@ -13,6 +13,31 @@ use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
 {
+    private function serializeUser(User $user): array
+    {
+        $user->loadMissing(['role', 'latestPartnership']);
+
+        return [
+            'id' => $user->id,
+            'uuid' => $user->uuid,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'full_name' => $user->full_name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'role' => $user->role?->slug,
+            'role_name' => $user->role?->name,
+            'agent_type' => $user->agent_type,
+            'partner_type' => $user->latestPartnership?->company_type,
+            'partner_application_status' => $user->latestPartnership?->status,
+            'avatar' => $user->avatar,
+            'email_verified_at' => $user->email_verified_at,
+            'is_active' => $user->is_active,
+            'last_login_at' => $user->last_login_at,
+            'created_at' => $user->created_at,
+        ];
+    }
+
     /**
      * Inscription d'un nouvel utilisateur
      */
@@ -81,18 +106,7 @@ class AuthController extends Controller
                 'success' => true,
                 'message' => 'Inscription reussie',
                 'data' => [
-                    'user' => [
-                        'id' => $user->id,
-                        'uuid' => $user->uuid,
-                        'first_name' => $user->first_name,
-                        'last_name' => $user->last_name,
-                        'email' => $user->email,
-                        'phone' => $user->phone,
-                        'role' => $user->role->slug,
-                        'agent_type' => $user->agent_type,
-                        'avatar' => $user->avatar,
-                        'is_active' => $user->is_active,
-                    ],
+                    'user' => $this->serializeUser($user),
                     'token' => $token,
                     'requires_activation' => $requiresActivation,
                 ]
@@ -155,20 +169,7 @@ public function login(Request $request)
                 ? 'Connexion réussie'
                 : 'Connexion réussie. Votre compte est en attente d\'activation par un administrateur.',
             'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'uuid' => $user->uuid,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'full_name' => $user->full_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role' => $user->role->slug,
-                    'role_name' => $user->role->name,
-                    'agent_type' => $user->agent_type,
-                    'avatar' => $user->avatar,
-                    'is_active' => $user->is_active,
-                ],
+                'user' => $this->serializeUser($user),
                 'token' => $token,
                 'requires_activation' => !$user->is_active,
             ]
@@ -212,28 +213,12 @@ public function login(Request $request)
      */
     public function profile(Request $request)
     {
-        $user = $request->user()->load('role');
+        $user = $request->user()->load(['role', 'latestPartnership']);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'uuid' => $user->uuid,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'full_name' => $user->full_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role' => $user->role->slug,
-                    'role_name' => $user->role->name,
-                    'agent_type' => $user->agent_type,
-                    'avatar' => $user->avatar,
-                    'email_verified_at' => $user->email_verified_at,
-                    'is_active' => $user->is_active,
-                    'last_login_at' => $user->last_login_at,
-                    'created_at' => $user->created_at,
-                ]
+                'user' => $this->serializeUser($user)
             ]
         ]);
     }

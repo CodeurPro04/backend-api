@@ -14,6 +14,66 @@ use Illuminate\Support\Str;
 
 class PropertyController extends Controller
 {
+    private function propertyMediaRules(bool $requireStandardImages = true): array
+    {
+        $standardRule = $requireStandardImages ? 'required|array|min:1' : 'nullable|array';
+
+        return [
+            'images' => $standardRule,
+            'images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
+            'plan_images' => 'nullable|array',
+            'plan_images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
+            'render_3d_images' => 'nullable|array',
+            'render_3d_images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
+        ];
+    }
+
+    private function createPropertyMediaBatch(Property $property, array $files, string $category, int $startIndex = 0, bool $makePrimary = false): void
+    {
+        foreach ($files as $index => $image) {
+            $path = $image->store('properties/' . $property->uuid . '/' . $category, 'public');
+
+            PropertyMedia::create([
+                'property_id' => $property->id,
+                'type' => 'image',
+                'category' => $category,
+                'file_path' => $path,
+                'file_name' => $image->getClientOriginalName(),
+                'file_size' => $image->getSize(),
+                'mime_type' => $image->getMimeType(),
+                'order' => $startIndex + $index,
+                'is_primary' => $makePrimary && ($startIndex + $index) === 0,
+            ]);
+        }
+    }
+
+    private function attachPropertyVisuals(Request $request, Property $property): void
+    {
+        if ($request->hasFile('images')) {
+            $standardCount = $property->media()->where(function ($query) {
+                $query->whereNull('category')->orWhere('category', 'standard');
+            })->count();
+
+            $this->createPropertyMediaBatch(
+                $property,
+                $request->file('images'),
+                'standard',
+                $standardCount,
+                $standardCount === 0
+            );
+        }
+
+        if ($request->hasFile('plan_images')) {
+            $planCount = $property->media()->where('category', 'plan')->count();
+            $this->createPropertyMediaBatch($property, $request->file('plan_images'), 'plan', $planCount);
+        }
+
+        if ($request->hasFile('render_3d_images')) {
+            $renderCount = $property->media()->where('category', 'three_d')->count();
+            $this->createPropertyMediaBatch($property, $request->file('render_3d_images'), 'three_d', $renderCount);
+        }
+    }
+
     /**
      * CrÃ‡Â¸er une propriÃ‡Â¸tÃ‡Â¸ (admin)
      */
@@ -256,7 +316,7 @@ class PropertyController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), array_merge([
             'title' => 'required|string|max:255',
             'description' => 'required|string',
             'property_type_id' => 'required|exists:property_types,id',
@@ -280,9 +340,7 @@ class PropertyController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'features' => 'nullable|array',
             'features.*' => 'exists:property_features,id',
-            'images' => 'required|array|min:1',
-            'images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
-        ]);
+        ], $this->propertyMediaRules()));
 
         if ($validator->fails()) {
             return response()->json([
@@ -326,23 +384,7 @@ class PropertyController extends Controller
                 $property->features()->attach($request->features);
             }
 
-            // GÃ©rer les images
-            if ($request->hasFile('images')) {
-                foreach ($request->file('images') as $index => $image) {
-                    $path = $image->store('properties/' . $property->uuid, 'public');
-
-                    PropertyMedia::create([
-                        'property_id' => $property->id,
-                        'type' => 'image',
-                        'file_path' => $path,
-                        'file_name' => $image->getClientOriginalName(),
-                        'file_size' => $image->getSize(),
-                        'mime_type' => $image->getMimeType(),
-                        'order' => $index,
-                        'is_primary' => $index === 0,
-                    ]);
-                }
-            }
+            $this->attachPropertyVisuals($request, $property);
 
             // Log l'activitÃ©
             ActivityLog::create([
@@ -633,7 +675,7 @@ class PropertyController extends Controller
      */
     public function agentStoreFromRequest(Request $request, $uuid)
     {
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), array_merge([
             'title' => 'required|string|max:255',
             'description' => 'required|string',
             'agent_comment' => 'required|string',
@@ -658,9 +700,7 @@ class PropertyController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'features' => 'nullable|array',
             'features.*' => 'exists:property_features,id',
-            'images' => 'required|array|min:1',
-            'images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
-        ]);
+        ], $this->propertyMediaRules()));
 
         if ($validator->fails()) {
             return response()->json([
@@ -719,22 +759,7 @@ class PropertyController extends Controller
                 $property->features()->attach($request->features);
             }
 
-            if ($request->hasFile('images')) {
-                foreach ($request->file('images') as $index => $image) {
-                    $path = $image->store('properties/' . $property->uuid, 'public');
-
-                    PropertyMedia::create([
-                        'property_id' => $property->id,
-                        'type' => 'image',
-                        'file_path' => $path,
-                        'file_name' => $image->getClientOriginalName(),
-                        'file_size' => $image->getSize(),
-                        'mime_type' => $image->getMimeType(),
-                        'order' => $index,
-                        'is_primary' => $index === 0,
-                    ]);
-                }
-            }
+            $this->attachPropertyVisuals($request, $property);
 
             $propertyRequest->update([
                 'property_id' => $property->id,
@@ -1001,10 +1026,7 @@ class PropertyController extends Controller
      */
     public function addImages(Request $request, $uuid)
     {
-        $validator = Validator::make($request->all(), [
-            'images' => 'required|array|min:1',
-            'images.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
-        ]);
+        $validator = Validator::make($request->all(), $this->propertyMediaRules(false));
 
         if ($validator->fails()) {
             return response()->json([
@@ -1018,22 +1040,14 @@ class PropertyController extends Controller
                 ->where('user_id', $request->user()->id)
                 ->firstOrFail();
 
-            $startIndex = $property->media()->count();
-
-            foreach ($request->file('images') as $index => $image) {
-                $path = $image->store('properties/' . $property->uuid, 'public');
-
-                PropertyMedia::create([
-                    'property_id' => $property->id,
-                    'type' => 'image',
-                    'file_path' => $path,
-                    'file_name' => $image->getClientOriginalName(),
-                    'file_size' => $image->getSize(),
-                    'mime_type' => $image->getMimeType(),
-                    'order' => $startIndex + $index,
-                    'is_primary' => ($startIndex + $index) === 0,
-                ]);
+            if (!$request->hasFile('images') && !$request->hasFile('plan_images') && !$request->hasFile('render_3d_images')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Aucun fichier image n'a ete fourni"
+                ], 422);
             }
+
+            $this->attachPropertyVisuals($request, $property);
 
             return response()->json([
                 'success' => true,

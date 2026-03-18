@@ -95,6 +95,16 @@ class User extends Authenticatable
         return $this->hasMany(Notification::class);
     }
 
+    public function partnerships()
+    {
+        return $this->hasMany(Partnership::class, 'user_id');
+    }
+
+    public function latestPartnership()
+    {
+        return $this->hasOne(Partnership::class, 'user_id')->latestOfMany();
+    }
+
     // Helper methods
     public function hasRole($role): bool
     {

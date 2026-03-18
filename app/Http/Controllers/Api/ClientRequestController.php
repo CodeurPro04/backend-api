@@ -3,15 +3,20 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReport;
 use App\Models\ConstructionProject;
 use App\Models\InvestmentProject;
 use App\Models\Notification;
 use App\Models\Property;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class ClientRequestController extends Controller
 {
@@ -48,6 +53,83 @@ class ClientRequestController extends Controller
         }
     }
 
+    private function generateVisitorPassword(): string
+    {
+        return 'Abi@' . strtoupper(Str::random(2)) . random_int(100000, 999999);
+    }
+
+    private function splitName(string $fullName): array
+    {
+        $normalized = trim(preg_replace('/\s+/', ' ', $fullName));
+        if ($normalized === '') {
+            return ['first_name' => 'Client', 'last_name' => 'Visiteur'];
+        }
+
+        if (str_contains($normalized, '@')) {
+            $normalized = str_replace(['.', '_', '-'], ' ', Str::before($normalized, '@'));
+            $normalized = trim(preg_replace('/\s+/', ' ', $normalized));
+        }
+
+        $parts = explode(' ', $normalized, 2);
+
+        return [
+            'first_name' => $parts[0] ?? 'Client',
+            'last_name' => $parts[1] ?? 'Visiteur',
+        ];
+    }
+
+    private function createVisitorAccount(Request $request, string $name, string $email, ?string $phone): array
+    {
+        $existingUser = User::where('email', $email)->first();
+        if ($existingUser) {
+            return [
+                'user' => $existingUser,
+                'account' => null,
+                'message' => 'Votre demande a bien ete envoyee. Cet email est deja associe a un compte, vous pouvez donc vous connecter avec vos identifiants habituels.',
+            ];
+        }
+
+        $role = Role::where('slug', 'visiteur')->first();
+        if (!$role) {
+            abort(response()->json([
+                'success' => false,
+                'message' => 'Le role visiteur est introuvable.',
+            ], 500));
+        }
+
+        $defaultPassword = $this->generateVisitorPassword();
+        $nameParts = $this->splitName($name);
+
+        $user = User::create([
+            'first_name' => $nameParts['first_name'],
+            'last_name' => $nameParts['last_name'],
+            'email' => $email,
+            'phone' => $phone,
+            'password' => Hash::make($defaultPassword),
+            'role_id' => $role->id,
+            'is_active' => true,
+        ]);
+
+        ActivityLog::create([
+            'user_id' => $user->id,
+            'action' => 'registered',
+            'description' => 'Compte visiteur cree automatiquement depuis un formulaire de demande publique',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'created_at' => now(),
+        ]);
+
+        return [
+            'user' => $user,
+            'account' => [
+                'email' => $user->email,
+                'default_password' => $defaultPassword,
+                'requires_activation' => false,
+            ],
+            'message' => 'Votre demande a bien ete envoyee et votre compte visiteur a ete cree.',
+        ];
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -59,7 +141,7 @@ class ClientRequestController extends Controller
             'investment_uuid' => 'nullable|exists:investment_projects,uuid',
             'request_type' => 'nullable|in:immobilier,construction,investissement',
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
+            'email' => 'required|email|max:255',
             'phone' => 'nullable|string|max:30',
             'message' => 'required|string',
             'sector' => 'nullable|string|max:255',
@@ -101,42 +183,77 @@ class ClientRequestController extends Controller
             }
         }
 
-        $clientRequest = ClientRequest::create([
-            'user_id' => $request->user()?->id,
-            'property_id' => $propertyId,
-            'construction_project_id' => $constructionId,
-            'investment_project_id' => $investmentId,
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'message' => $request->message,
-            'sector' => $request->sector,
-            'department' => $request->department,
-            'project_description' => $request->project_description,
-            'consent' => (bool) $request->consent,
-            'request_type' => $requestType,
-            'status' => 'pending',
-        ]);
+        DB::beginTransaction();
 
-        $staffRecipients = User::whereHas('role', function ($query) {
-            $query->whereIn('slug', ['gestionnaire', 'admin']);
-        })->get();
+        try {
+            $user = $request->user();
+            $createdAccount = null;
+            $responseMessage = 'Demande envoyee';
 
-        foreach ($staffRecipients as $recipient) {
-            Notification::create([
-                'user_id' => $recipient->id,
-                'type' => 'client_request',
-                'title' => 'Nouvelle demande client',
-                'message' => $request->name,
-                'data' => json_encode(['request_uuid' => $clientRequest->uuid]),
+            if (!$user) {
+                $account = $this->createVisitorAccount(
+                    $request,
+                    $request->name,
+                    $request->email,
+                    $request->phone
+                );
+
+                $user = $account['user'];
+                $createdAccount = $account['account'];
+                $responseMessage = $account['message'] ?? $responseMessage;
+            }
+
+            $clientRequest = ClientRequest::create([
+                'user_id' => $user?->id,
+                'property_id' => $propertyId,
+                'construction_project_id' => $constructionId,
+                'investment_project_id' => $investmentId,
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'message' => $request->message,
+                'sector' => $request->sector,
+                'department' => $request->department,
+                'project_description' => $request->project_description,
+                'consent' => (bool) $request->consent,
+                'request_type' => $requestType,
+                'status' => 'pending',
             ]);
-        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Demande envoyee',
-            'data' => $clientRequest
-        ], 201);
+            $staffRecipients = User::whereHas('role', function ($query) {
+                $query->whereIn('slug', ['gestionnaire', 'admin']);
+            })->get();
+
+            foreach ($staffRecipients as $recipient) {
+                Notification::create([
+                    'user_id' => $recipient->id,
+                    'type' => 'client_request',
+                    'title' => 'Nouvelle demande client',
+                    'message' => $request->name,
+                    'data' => json_encode(['request_uuid' => $clientRequest->uuid]),
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $responseMessage,
+                'data' => $clientRequest,
+                'account' => $createdAccount,
+            ], 201);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+            DB::rollBack();
+            throw $exception;
+        } catch (\Throwable $exception) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de l\'envoi de la demande.',
+                'error' => $exception->getMessage(),
+            ], 500);
+        }
     }
 
     public function pending()

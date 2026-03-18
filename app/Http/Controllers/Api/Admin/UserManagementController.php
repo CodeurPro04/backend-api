@@ -10,9 +10,19 @@ use Illuminate\Support\Str;
 
 class UserManagementController extends Controller
 {
+    private function appendPartnerType(User $user): User
+    {
+        $user->setAttribute('partner_type', $user->latestPartnership?->company_type);
+        $user->setAttribute('partner_application_status', $user->latestPartnership?->status);
+
+        return $user;
+    }
+
     public function index()
     {
-        $users = User::with('role')->paginate(20);
+        $users = User::with(['role', 'latestPartnership'])->paginate(20);
+        $users->setCollection($users->getCollection()->map(fn (User $user) => $this->appendPartnerType($user)));
+
         return response()->json($users);
     }
 
@@ -46,15 +56,16 @@ class UserManagementController extends Controller
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
-        $user->load('role');
+        $user->load(['role', 'latestPartnership']);
 
-        return response()->json($user, 201);
+        return response()->json($this->appendPartnerType($user), 201);
     }
 
     public function show($id)
     {
-        $user = User::with('role')->findOrFail($id);
-        return response()->json($user);
+        $user = User::with(['role', 'latestPartnership'])->findOrFail($id);
+
+        return response()->json($this->appendPartnerType($user));
     }
 
 
@@ -89,9 +100,9 @@ class UserManagementController extends Controller
         }
 
         $user->update($validated);
-        $user->load('role');
+        $user->load(['role', 'latestPartnership']);
 
-        return response()->json($user);
+        return response()->json($this->appendPartnerType($user));
     }
 
     public function destroy($id)
@@ -124,9 +135,9 @@ class UserManagementController extends Controller
 
         $user->role_id = $role->id;
         $user->save();
-        $user->load('role');
+        $user->load(['role', 'latestPartnership']);
 
-        return response()->json($user);
+        return response()->json($this->appendPartnerType($user));
     }
 
     public function checkroles()

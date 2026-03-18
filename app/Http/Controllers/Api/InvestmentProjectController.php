@@ -123,14 +123,26 @@ class InvestmentProjectController extends Controller
             'documents_path.*' => 'nullable|string',
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
+            'plans_path' => 'nullable|array',
+            'plans_path.*' => 'nullable|string',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
             'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
             'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'plans' => 'nullable|array',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_documents' => 'nullable|array',
             'remove_documents.*' => 'string',
             'remove_images' => 'nullable|array',
             'remove_images.*' => 'string',
+            'remove_plans' => 'nullable|array',
+            'remove_plans.*' => 'string',
+            'remove_render_3d' => 'nullable|array',
+            'remove_render_3d.*' => 'string',
             'featured' => 'nullable|boolean',
         ]);
 
@@ -155,11 +167,15 @@ class InvestmentProjectController extends Controller
             'end_date' => $validated['end_date'] ?? null,
             'documents_path' => $validated['documents_path'] ?? null,
             'images_path' => $validated['images_path'] ?? null,
+            'plans_path' => $validated['plans_path'] ?? null,
+            'render_3d_path' => $validated['render_3d_path'] ?? null,
             'featured' => $validated['featured'] ?? false,
         ]);
 
         $documentPaths = $validated['documents_path'] ?? [];
         $imagePaths = $validated['images_path'] ?? [];
+        $planPaths = $validated['plans_path'] ?? [];
+        $render3DPaths = $validated['render_3d_path'] ?? [];
 
         if ($request->hasFile('documents')) {
             foreach ($request->file('documents') as $file) {
@@ -173,12 +189,24 @@ class InvestmentProjectController extends Controller
             }
         }
 
-        if (!empty($documentPaths) || !empty($imagePaths)) {
-            $project->update([
-                'documents_path' => $documentPaths,
-                'images_path' => $imagePaths,
-            ]);
+        if ($request->hasFile('plans')) {
+            foreach ($request->file('plans') as $file) {
+                $planPaths[] = $file->store("investments/{$project->uuid}/plans", 'public');
+            }
         }
+
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("investments/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        $project->update([
+            'documents_path' => !empty($documentPaths) ? $documentPaths : null,
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -215,22 +243,38 @@ class InvestmentProjectController extends Controller
             'documents_path.*' => 'nullable|string',
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
+            'plans_path' => 'nullable|array',
+            'plans_path.*' => 'nullable|string',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
             'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
             'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'plans' => 'nullable|array',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_documents' => 'nullable|array',
             'remove_documents.*' => 'string',
             'remove_images' => 'nullable|array',
             'remove_images.*' => 'string',
+            'remove_plans' => 'nullable|array',
+            'remove_plans.*' => 'string',
+            'remove_render_3d' => 'nullable|array',
+            'remove_render_3d.*' => 'string',
             'featured' => 'nullable|boolean',
         ]);
         $payload = $validated;
         unset(
             $payload['documents'],
             $payload['images'],
+            $payload['plans'],
+            $payload['render_3d'],
             $payload['remove_documents'],
-            $payload['remove_images']
+            $payload['remove_images'],
+            $payload['remove_plans'],
+            $payload['remove_render_3d']
         );
         $payload['approval_status'] = 'approved';
         $payload['rejection_reason'] = null;
@@ -238,9 +282,13 @@ class InvestmentProjectController extends Controller
 
         $documentPaths = $validated['documents_path'] ?? ($project->documents_path ?? []);
         $imagePaths = $validated['images_path'] ?? ($project->images_path ?? []);
+        $planPaths = $validated['plans_path'] ?? ($project->plans_path ?? []);
+        $render3DPaths = $validated['render_3d_path'] ?? ($project->render_3d_path ?? []);
 
         $removeDocuments = $validated['remove_documents'] ?? [];
         $removeImages = $validated['remove_images'] ?? [];
+        $removePlans = $validated['remove_plans'] ?? [];
+        $removeRender3D = $validated['remove_render_3d'] ?? [];
 
         if (!empty($removeDocuments)) {
             foreach ($removeDocuments as $path) {
@@ -256,6 +304,19 @@ class InvestmentProjectController extends Controller
             $imagePaths = array_values(array_diff($imagePaths, $removeImages));
         }
 
+        if (!empty($removePlans)) {
+            foreach ($removePlans as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            $planPaths = array_values(array_diff($planPaths, $removePlans));
+        }
+
+        if (!empty($removeRender3D)) {
+            foreach ($removeRender3D as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            $render3DPaths = array_values(array_diff($render3DPaths, $removeRender3D));
+        }
 
         if ($request->hasFile('documents')) {
             foreach ($request->file('documents') as $file) {
@@ -269,12 +330,24 @@ class InvestmentProjectController extends Controller
             }
         }
 
-        if (!empty($documentPaths) || !empty($imagePaths)) {
-            $project->update([
-                'documents_path' => $documentPaths,
-                'images_path' => $imagePaths,
-            ]);
+        if ($request->hasFile('plans')) {
+            foreach ($request->file('plans') as $file) {
+                $planPaths[] = $file->store("investments/{$project->uuid}/plans", 'public');
+            }
         }
+
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("investments/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        $project->update([
+            'documents_path' => !empty($documentPaths) ? $documentPaths : null,
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -341,10 +414,18 @@ class InvestmentProjectController extends Controller
             'documents_path.*' => 'nullable|string',
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
+            'plans_path' => 'nullable|array',
+            'plans_path.*' => 'nullable|string',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
             'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
             'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'plans' => 'nullable|array',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'featured' => 'nullable|boolean',
         ]);
 
@@ -369,11 +450,15 @@ class InvestmentProjectController extends Controller
             'end_date' => $validated['end_date'] ?? null,
             'documents_path' => $validated['documents_path'] ?? null,
             'images_path' => $validated['images_path'] ?? null,
+            'plans_path' => $validated['plans_path'] ?? null,
+            'render_3d_path' => $validated['render_3d_path'] ?? null,
             'featured' => $validated['featured'] ?? false,
         ]);
 
         $documentPaths = $validated['documents_path'] ?? [];
         $imagePaths = $validated['images_path'] ?? [];
+        $planPaths = $validated['plans_path'] ?? [];
+        $render3DPaths = $validated['render_3d_path'] ?? [];
 
         if ($request->hasFile('documents')) {
             foreach ($request->file('documents') as $file) {
@@ -387,12 +472,24 @@ class InvestmentProjectController extends Controller
             }
         }
 
-        if (!empty($documentPaths) || !empty($imagePaths)) {
-            $project->update([
-                'documents_path' => $documentPaths,
-                'images_path' => $imagePaths,
-            ]);
+        if ($request->hasFile('plans')) {
+            foreach ($request->file('plans') as $file) {
+                $planPaths[] = $file->store("investments/{$project->uuid}/plans", 'public');
+            }
         }
+
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("investments/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        $project->update([
+            'documents_path' => !empty($documentPaths) ? $documentPaths : null,
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -438,27 +535,52 @@ class InvestmentProjectController extends Controller
             'documents_path.*' => 'nullable|string',
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
+            'plans_path' => 'nullable|array',
+            'plans_path.*' => 'nullable|string',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
             'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
             'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'plans' => 'nullable|array',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_documents' => 'nullable|array',
             'remove_documents.*' => 'string',
             'remove_images' => 'nullable|array',
             'remove_images.*' => 'string',
+            'remove_plans' => 'nullable|array',
+            'remove_plans.*' => 'string',
+            'remove_render_3d' => 'nullable|array',
+            'remove_render_3d.*' => 'string',
             'featured' => 'nullable|boolean',
         ]);
 
         $payload = $validated;
-        unset($payload['documents'], $payload['images'], $payload['remove_documents'], $payload['remove_images']);
+        unset(
+            $payload['documents'],
+            $payload['images'],
+            $payload['plans'],
+            $payload['render_3d'],
+            $payload['remove_documents'],
+            $payload['remove_images'],
+            $payload['remove_plans'],
+            $payload['remove_render_3d']
+        );
         $payload['approval_status'] = 'pending';
         $payload['rejection_reason'] = null;
         $project->update($payload);
 
         $documentPaths = $validated['documents_path'] ?? ($project->documents_path ?? []);
         $imagePaths = $validated['images_path'] ?? ($project->images_path ?? []);
+        $planPaths = $validated['plans_path'] ?? ($project->plans_path ?? []);
+        $render3DPaths = $validated['render_3d_path'] ?? ($project->render_3d_path ?? []);
         $removeDocuments = $validated['remove_documents'] ?? [];
         $removeImages = $validated['remove_images'] ?? [];
+        $removePlans = $validated['remove_plans'] ?? [];
+        $removeRender3D = $validated['remove_render_3d'] ?? [];
 
         if (!empty($removeDocuments)) {
             foreach ($removeDocuments as $path) {
@@ -474,6 +596,20 @@ class InvestmentProjectController extends Controller
             $imagePaths = array_values(array_diff($imagePaths, $removeImages));
         }
 
+        if (!empty($removePlans)) {
+            foreach ($removePlans as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            $planPaths = array_values(array_diff($planPaths, $removePlans));
+        }
+
+        if (!empty($removeRender3D)) {
+            foreach ($removeRender3D as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            $render3DPaths = array_values(array_diff($render3DPaths, $removeRender3D));
+        }
+
         if ($request->hasFile('documents')) {
             foreach ($request->file('documents') as $file) {
                 $documentPaths[] = $file->store("investments/{$project->uuid}/documents", 'public');
@@ -486,12 +622,24 @@ class InvestmentProjectController extends Controller
             }
         }
 
-        if (!empty($documentPaths) || !empty($imagePaths)) {
-            $project->update([
-                'documents_path' => $documentPaths,
-                'images_path' => $imagePaths,
-            ]);
+        if ($request->hasFile('plans')) {
+            foreach ($request->file('plans') as $file) {
+                $planPaths[] = $file->store("investments/{$project->uuid}/plans", 'public');
+            }
         }
+
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("investments/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        $project->update([
+            'documents_path' => !empty($documentPaths) ? $documentPaths : null,
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,

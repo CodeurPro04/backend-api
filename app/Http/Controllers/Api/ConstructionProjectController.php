@@ -301,6 +301,10 @@ class ConstructionProjectController extends Controller
             'plans_path.*' => 'nullable|string',
             'plans' => 'nullable|array',
             'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
         ]);
 
         $project = ConstructionProject::create([
@@ -318,6 +322,7 @@ class ConstructionProjectController extends Controller
             'is_publication' => true,
             'images_path' => $validated['images_path'] ?? null,
             'plans_path' => $validated['plans_path'] ?? null,
+            'render_3d_path' => $validated['render_3d_path'] ?? null,
         ]);
 
         $imagePaths = $validated['images_path'] ?? [];
@@ -343,6 +348,19 @@ class ConstructionProjectController extends Controller
         if (!empty($planPaths)) {
             $project->update([
                 'plans_path' => $planPaths,
+            ]);
+        }
+
+        $render3DPaths = $validated['render_3d_path'] ?? [];
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("construction/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        if (!empty($render3DPaths)) {
+            $project->update([
+                'render_3d_path' => $render3DPaths,
             ]);
         }
 
@@ -378,10 +396,23 @@ class ConstructionProjectController extends Controller
             'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_plans' => 'nullable|array',
             'remove_plans.*' => 'string',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'remove_render_3d' => 'nullable|array',
+            'remove_render_3d.*' => 'string',
         ]);
 
         $payload = $validated;
-        unset($payload['images'], $payload['remove_images'], $payload['plans'], $payload['remove_plans']);
+        unset(
+            $payload['images'],
+            $payload['remove_images'],
+            $payload['plans'],
+            $payload['remove_plans'],
+            $payload['render_3d'],
+            $payload['remove_render_3d']
+        );
         if (array_key_exists('status', $payload) && $payload['status'] !== 'rejected') {
             $payload['rejection_reason'] = null;
         }
@@ -389,47 +420,51 @@ class ConstructionProjectController extends Controller
 
         $imagePaths = $validated['images_path'] ?? ($project->images_path ?? []);
         $removeImages = $validated['remove_images'] ?? [];
-
         if (!empty($removeImages)) {
             foreach ($removeImages as $path) {
                 Storage::disk('public')->delete($path);
             }
             $imagePaths = array_values(array_diff($imagePaths, $removeImages));
         }
-
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $file) {
                 $imagePaths[] = $file->store("construction/{$project->uuid}/images", 'public');
             }
         }
 
-        if (!empty($imagePaths)) {
-            $project->update([
-                'images_path' => $imagePaths,
-            ]);
-        }
-
         $planPaths = $validated['plans_path'] ?? ($project->plans_path ?? []);
         $removePlans = $validated['remove_plans'] ?? [];
-
         if (!empty($removePlans)) {
             foreach ($removePlans as $path) {
                 Storage::disk('public')->delete($path);
             }
             $planPaths = array_values(array_diff($planPaths, $removePlans));
         }
-
         if ($request->hasFile('plans')) {
             foreach ($request->file('plans') as $file) {
                 $planPaths[] = $file->store("construction/{$project->uuid}/plans", 'public');
             }
         }
 
-        if (!empty($planPaths)) {
-            $project->update([
-                'plans_path' => $planPaths,
-            ]);
+        $render3DPaths = $validated['render_3d_path'] ?? ($project->render_3d_path ?? []);
+        $removeRender3D = $validated['remove_render_3d'] ?? [];
+        if (!empty($removeRender3D)) {
+            foreach ($removeRender3D as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            $render3DPaths = array_values(array_diff($render3DPaths, $removeRender3D));
         }
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("construction/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        $project->update([
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -462,6 +497,10 @@ class ConstructionProjectController extends Controller
             'plans_path.*' => 'nullable|string',
             'plans' => 'nullable|array',
             'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
         ]);
 
         $project = ConstructionProject::create([
@@ -479,6 +518,7 @@ class ConstructionProjectController extends Controller
             'is_publication' => true,
             'images_path' => $validated['images_path'] ?? null,
             'plans_path' => $validated['plans_path'] ?? null,
+            'render_3d_path' => $validated['render_3d_path'] ?? null,
         ]);
 
         $imagePaths = $validated['images_path'] ?? [];
@@ -488,12 +528,6 @@ class ConstructionProjectController extends Controller
             }
         }
 
-        if (!empty($imagePaths)) {
-            $project->update([
-                'images_path' => $imagePaths,
-            ]);
-        }
-
         $planPaths = $validated['plans_path'] ?? [];
         if ($request->hasFile('plans')) {
             foreach ($request->file('plans') as $file) {
@@ -501,11 +535,18 @@ class ConstructionProjectController extends Controller
             }
         }
 
-        if (!empty($planPaths)) {
-            $project->update([
-                'plans_path' => $planPaths,
-            ]);
+        $render3DPaths = $validated['render_3d_path'] ?? [];
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("construction/{$project->uuid}/render-3d", 'public');
+            }
         }
+
+        $project->update([
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -546,57 +587,74 @@ class ConstructionProjectController extends Controller
             'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_plans' => 'nullable|array',
             'remove_plans.*' => 'string',
+            'render_3d_path' => 'nullable|array',
+            'render_3d_path.*' => 'nullable|string',
+            'render_3d' => 'nullable|array',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'remove_render_3d' => 'nullable|array',
+            'remove_render_3d.*' => 'string',
         ]);
 
         $payload = $validated;
-        unset($payload['images'], $payload['remove_images'], $payload['plans'], $payload['remove_plans']);
+        unset(
+            $payload['images'],
+            $payload['remove_images'],
+            $payload['plans'],
+            $payload['remove_plans'],
+            $payload['render_3d'],
+            $payload['remove_render_3d']
+        );
         $payload['status'] = 'submitted';
         $payload['is_publication'] = true;
         $project->update($payload);
 
         $imagePaths = $validated['images_path'] ?? ($project->images_path ?? []);
         $removeImages = $validated['remove_images'] ?? [];
-
         if (!empty($removeImages)) {
             foreach ($removeImages as $path) {
                 Storage::disk('public')->delete($path);
             }
             $imagePaths = array_values(array_diff($imagePaths, $removeImages));
         }
-
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $file) {
                 $imagePaths[] = $file->store("construction/{$project->uuid}/images", 'public');
             }
         }
 
-        if (!empty($imagePaths)) {
-            $project->update([
-                'images_path' => $imagePaths,
-            ]);
-        }
-
         $planPaths = $validated['plans_path'] ?? ($project->plans_path ?? []);
         $removePlans = $validated['remove_plans'] ?? [];
-
         if (!empty($removePlans)) {
             foreach ($removePlans as $path) {
                 Storage::disk('public')->delete($path);
             }
             $planPaths = array_values(array_diff($planPaths, $removePlans));
         }
-
         if ($request->hasFile('plans')) {
             foreach ($request->file('plans') as $file) {
                 $planPaths[] = $file->store("construction/{$project->uuid}/plans", 'public');
             }
         }
 
-        if (!empty($planPaths)) {
-            $project->update([
-                'plans_path' => $planPaths,
-            ]);
+        $render3DPaths = $validated['render_3d_path'] ?? ($project->render_3d_path ?? []);
+        $removeRender3D = $validated['remove_render_3d'] ?? [];
+        if (!empty($removeRender3D)) {
+            foreach ($removeRender3D as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            $render3DPaths = array_values(array_diff($render3DPaths, $removeRender3D));
         }
+        if ($request->hasFile('render_3d')) {
+            foreach ($request->file('render_3d') as $file) {
+                $render3DPaths[] = $file->store("construction/{$project->uuid}/render-3d", 'public');
+            }
+        }
+
+        $project->update([
+            'images_path' => !empty($imagePaths) ? $imagePaths : null,
+            'plans_path' => !empty($planPaths) ? $planPaths : null,
+            'render_3d_path' => !empty($render3DPaths) ? $render3DPaths : null,
+        ]);
 
         return response()->json([
             'success' => true,
