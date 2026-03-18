@@ -8,6 +8,7 @@ use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 class SearchRequestController extends Controller
 {
@@ -55,9 +56,16 @@ class SearchRequestController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
+            Log::error('Erreur creation search request', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'payload' => $request->all(),
+                'user_id' => $request->user()?->id,
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la création'
+                'message' => 'Erreur lors de la creation de la demande.'
             ], 500);
         }
     }
