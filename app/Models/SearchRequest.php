@@ -15,7 +15,9 @@ class SearchRequest extends Model
         'transaction_type', 'budget_min', 'budget_max',
         'location_preferences', 'bedrooms_min', 'surface_min',
         'additional_requirements', 'status', 'priority',
-        'assigned_at', 'fulfilled_at'
+        'rejection_reason', 'approved_at', 'rejected_at',
+        'assigned_at', 'fulfilled_at', 'deal_status', 'deal_concluded_at',
+        'deal_sale_price', 'deal_closure_note'
     ];
 
     protected $casts = [
@@ -23,8 +25,11 @@ class SearchRequest extends Model
         'budget_max' => 'decimal:2',
         'surface_min' => 'decimal:2',
         'location_preferences' => 'array',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
         'assigned_at' => 'datetime',
         'fulfilled_at' => 'datetime',
+        'deal_concluded_at' => 'datetime',
     ];
 
     protected static function boot()
@@ -50,6 +55,12 @@ class SearchRequest extends Model
     public function propertyType()
     {
         return $this->belongsTo(PropertyType::class);
+    }
+
+
+    public function reports()
+    {
+        return $this->hasMany(SearchRequestReport::class)->orderBy('created_at');
     }
 
     public function scopePending($query)

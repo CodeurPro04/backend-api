@@ -3,18 +3,45 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\SearchRequest;
 use App\Models\Notification;
+use App\Models\SearchRequest;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class SearchRequestController extends Controller
 {
-    /**
-     * Créer une demande de recherche (Visiteur)
-     */
+    private function baseRelations(): array
+    {
+        return [
+            'user',
+            'propertyType',
+            'agent',
+            'reports.agent',
+        ];
+    }
+
+    private function notifyStaff(SearchRequest $searchRequest, string $title, string $message, array $extraData = []): void
+    {
+        $staffRecipients = User::whereHas('role', function ($query) {
+            $query->whereIn('slug', ['gestionnaire', 'admin']);
+        })->get();
+
+        foreach ($staffRecipients as $recipient) {
+            Notification::create([
+                'user_id' => $recipient->id,
+                'type' => 'search_request_follow_up',
+                'title' => $title,
+                'message' => $message,
+                'data' => array_merge([
+                    'request_uuid' => $searchRequest->uuid,
+                    'agent_id' => $searchRequest->agent_id,
+                ], $extraData),
+            ]);
+        }
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -54,7 +81,6 @@ class SearchRequestController extends Controller
                 'message' => 'Demande créée avec succès',
                 'data' => $searchRequest
             ], 201);
-
         } catch (\Exception $e) {
             Log::error('Erreur creation search request', [
                 'message' => $e->getMessage(),
@@ -70,13 +96,10 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Mes demandes (Visiteur)
-     */
     public function myRequests(Request $request)
     {
         try {
-            $requests = SearchRequest::with(['propertyType', 'agent'])
+            $requests = SearchRequest::with($this->baseRelations())
                 ->where('user_id', $request->user()->id)
                 ->orderBy('created_at', 'desc')
                 ->paginate(10);
@@ -85,7 +108,6 @@ class SearchRequestController extends Controller
                 'success' => true,
                 'data' => $requests
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -94,14 +116,11 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Demandes en attente (Gestionnaire)
-     */
     public function pending(Request $request)
     {
         try {
-            $requests = SearchRequest::with(['user', 'propertyType'])
-                ->whereIn('status', ['pending', 'approved'])
+            $requests = SearchRequest::with($this->baseRelations())
+                ->whereIn('status', ['pending', 'approved', 'agent_rejected'])
                 ->orderBy('created_at', 'desc')
                 ->paginate(15);
 
@@ -109,7 +128,6 @@ class SearchRequestController extends Controller
                 'success' => true,
                 'data' => $requests
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -118,9 +136,6 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Assigner à un agent (Gestionnaire)
-     */
     public function assignToAgent(Request $request, $uuid)
     {
         $validator = Validator::make($request->all(), [
@@ -148,22 +163,30 @@ class SearchRequestController extends Controller
                 'agent_id' => $request->agent_id,
                 'status' => 'assigned',
                 'assigned_at' => now(),
+                'rejection_reason' => null,
+                'rejected_at' => null,
             ]);
 
-            // Notification agent
-            Notification::create([
-                'user_id' => $request->agent_id,
-                'type' => 'search_request_assigned',
-                'title' => 'Nouvelle demande assignée',
-                'message' => 'Une demande de recherche vous a été assignée',
-                'data' => json_encode(['request_uuid' => $searchRequest->uuid]),
-            ]);
+            try {
+                Notification::create([
+                    'user_id' => $request->agent_id,
+                    'type' => 'search_request_assigned',
+                    'title' => 'Nouvelle demande assignee',
+                    'message' => 'Une demande de recherche vous a ete assignee',
+                    'data' => json_encode(['request_uuid' => $searchRequest->uuid]),
+                ]);
+            } catch (\Throwable $notificationException) {
+                Log::warning('Notification search request non envoyee apres assignation', [
+                    'search_request_uuid' => $searchRequest->uuid,
+                    'agent_id' => $request->agent_id,
+                    'message' => $notificationException->getMessage(),
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Demande assignée avec succès'
+                'message' => 'Demande assignee avec succes'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -172,15 +195,15 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Approuver une demande (Gestionnaire/Admin)
-     */
     public function approve(Request $request, $uuid)
     {
         try {
             $searchRequest = SearchRequest::where('uuid', $uuid)->firstOrFail();
             $searchRequest->update([
                 'status' => 'approved',
+                'approved_at' => now(),
+                'rejection_reason' => null,
+                'rejected_at' => null,
             ]);
 
             return response()->json([
@@ -195,15 +218,14 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Rejeter une demande (Gestionnaire/Admin)
-     */
     public function reject(Request $request, $uuid)
     {
         try {
             $searchRequest = SearchRequest::where('uuid', $uuid)->firstOrFail();
             $searchRequest->update([
                 'status' => 'rejected',
+                'rejected_at' => now(),
+                'rejection_reason' => $request->input('rejection_reason'),
             ]);
 
             return response()->json([
@@ -218,24 +240,20 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Demandes assignées (Agent)
-     */
     public function assignedRequests(Request $request)
     {
         try {
-            $requests = SearchRequest::with(['user', 'propertyType'])
+            $requests = SearchRequest::with($this->baseRelations())
                 ->where('agent_id', $request->user()->id)
-                ->whereIn('status', ['assigned', 'in_progress'])
-                ->orderBy('priority', 'desc')
-                ->orderBy('created_at', 'desc')
+                ->whereIn('status', ['assigned', 'agent_approved'])
+                ->orderByDesc('assigned_at')
+                ->orderByDesc('created_at')
                 ->paginate(15);
 
             return response()->json([
                 'success' => true,
                 'data' => $requests
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -244,9 +262,185 @@ class SearchRequestController extends Controller
         }
     }
 
-    /**
-     * Marquer comme remplie (Agent)
-     */
+    public function agentHistory(Request $request)
+    {
+        try {
+            $requests = SearchRequest::with($this->baseRelations())
+                ->where('agent_id', $request->user()->id)
+                ->whereNotIn('status', ['pending', 'approved', 'assigned'])
+                ->orderByDesc('updated_at')
+                ->paginate(15);
+
+            return response()->json([
+                'success' => true,
+                'data' => $requests
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur'
+            ], 500);
+        }
+    }
+
+    public function agentApprove(Request $request, $uuid)
+    {
+        $searchRequest = SearchRequest::where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->where('status', 'assigned')
+            ->firstOrFail();
+
+        $searchRequest->update([
+            'status' => 'agent_approved',
+            'approved_at' => now(),
+            'rejection_reason' => null,
+            'rejected_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demande de recherche approuvee'
+        ]);
+    }
+
+    public function agentReject(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'rejection_reason' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $searchRequest = SearchRequest::where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->where('status', 'assigned')
+            ->firstOrFail();
+
+        $searchRequest->update([
+            'status' => 'agent_rejected',
+            'rejected_at' => now(),
+            'rejection_reason' => $request->rejection_reason,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demande de recherche refusee'
+        ]);
+    }
+
+    public function addAgentReport(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'content' => 'required|string',
+            'summary' => 'nullable|string',
+            'client_feedback' => 'nullable|string',
+            'next_step' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $searchRequest = SearchRequest::with($this->baseRelations())
+            ->where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->whereIn('status', ['assigned', 'agent_approved'])
+            ->firstOrFail();
+
+        $report = $searchRequest->reports()->create([
+            'agent_id' => $request->user()->id,
+            'report_type' => 'progress_report',
+            'content' => $request->content,
+            'summary' => $request->summary,
+            'client_feedback' => $request->client_feedback,
+            'next_step' => $request->next_step,
+        ]);
+
+        $searchRequest->touch();
+        $this->notifyStaff(
+            $searchRequest,
+            'Nouveau rapport recherche',
+            'Un agent a envoye un rapport sur une demande de recherche.',
+            ['report_type' => 'progress_report']
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rapport enregistre',
+            'data' => [
+                'report' => $report->load('agent'),
+                'request' => $searchRequest->fresh($this->baseRelations()),
+            ],
+        ], 201);
+    }
+
+    public function concludeDeal(Request $request, $uuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'content' => 'required|string',
+            'closure_note' => 'required|string',
+            'sale_price' => 'nullable|string|max:255',
+            'next_step' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $searchRequest = SearchRequest::with($this->baseRelations())
+            ->where('uuid', $uuid)
+            ->where('agent_id', $request->user()->id)
+            ->whereIn('status', ['assigned', 'agent_approved'])
+            ->firstOrFail();
+
+        $report = $searchRequest->reports()->create([
+            'agent_id' => $request->user()->id,
+            'report_type' => 'final_report',
+            'content' => $request->content,
+            'next_step' => $request->next_step,
+            'sale_price' => $request->sale_price,
+            'closure_note' => $request->closure_note,
+            'concluded_at' => now(),
+        ]);
+
+        $searchRequest->update([
+            'status' => 'deal_concluded',
+            'deal_status' => 'deal_concluded',
+            'deal_concluded_at' => now(),
+            'deal_sale_price' => $request->sale_price,
+            'deal_closure_note' => $request->closure_note,
+            'approved_at' => $searchRequest->approved_at ?: now(),
+            'fulfilled_at' => now(),
+        ]);
+
+        $this->notifyStaff(
+            $searchRequest,
+            'Recherche conclue',
+            'Un agent a finalise une demande de recherche.',
+            ['report_type' => 'final_report']
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demande conclue',
+            'data' => [
+                'report' => $report->load('agent'),
+                'request' => $searchRequest->fresh($this->baseRelations()),
+            ],
+        ], 201);
+    }
+
     public function fulfill(Request $request, $uuid)
     {
         try {
@@ -259,20 +453,18 @@ class SearchRequestController extends Controller
                 'fulfilled_at' => now(),
             ]);
 
-            // Notification client
             Notification::create([
                 'user_id' => $searchRequest->user_id,
                 'type' => 'search_request_fulfilled',
-                'title' => 'Demande traitée',
-                'message' => 'Votre demande de recherche a été traitée',
+                'title' => 'Demande traitee',
+                'message' => 'Votre demande de recherche a ete traitee',
                 'data' => json_encode(['request_uuid' => $searchRequest->uuid]),
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Demande marquée comme remplie'
+                'message' => 'Demande marquee comme remplie'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -281,15 +473,11 @@ class SearchRequestController extends Controller
         }
     }
 
-
-    /**
-     * Historique des demandes (Gestionnaire)
-     */
     public function managerHistory(Request $request)
     {
         try {
-            $requests = SearchRequest::with(['user', 'propertyType', 'agent'])
-                ->whereIn('status', ['approved', 'rejected', 'assigned', 'in_progress', 'fulfilled'])
+            $requests = SearchRequest::with($this->baseRelations())
+                ->whereIn('status', ['approved', 'rejected', 'assigned', 'agent_approved', 'in_progress', 'fulfilled', 'deal_concluded'])
                 ->orderBy('updated_at', 'desc')
                 ->paginate(15);
 

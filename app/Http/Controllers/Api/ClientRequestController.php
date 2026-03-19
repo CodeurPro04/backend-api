@@ -259,7 +259,7 @@ class ClientRequestController extends Controller
     public function pending()
     {
         $requests = ClientRequest::with($this->baseRelations())
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'approved', 'agent_rejected'])
             ->orderBy('created_at', 'desc')
             ->paginate(15);
 
@@ -272,7 +272,7 @@ class ClientRequestController extends Controller
     public function history()
     {
         $requests = ClientRequest::with($this->baseRelations())
-            ->whereNotIn('status', ['pending', 'approved'])
+            ->whereNotIn('status', ['pending', 'approved', 'agent_rejected'])
             ->orderBy('updated_at', 'desc')
             ->paginate(15);
 
@@ -357,6 +357,8 @@ class ClientRequestController extends Controller
             'agent_id' => $request->agent_id,
             'status' => 'assigned',
             'assigned_at' => now(),
+            'rejection_reason' => null,
+            'rejected_at' => null,
         ]);
 
         return response()->json([

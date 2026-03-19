@@ -194,6 +194,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         // Demandes de recherche
         Route::prefix('search-requests')->group(function () {
             Route::get('/assigned', [SearchRequestController::class, 'assignedRequests']);
+            Route::get('/history', [SearchRequestController::class, 'agentHistory']);
+            Route::post('/{uuid}/approve', [SearchRequestController::class, 'agentApprove']);
+            Route::post('/{uuid}/reject', [SearchRequestController::class, 'agentReject']);
+            Route::post('/{uuid}/reports', [SearchRequestController::class, 'addAgentReport']);
+            Route::post('/{uuid}/conclude', [SearchRequestController::class, 'concludeDeal']);
             Route::post('/{uuid}/fulfill', [SearchRequestController::class, 'fulfill']);
         });
 

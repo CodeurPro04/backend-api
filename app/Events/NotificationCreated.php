@@ -7,6 +7,7 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Queue\SerializesModels;
 
 class NotificationCreated implements ShouldBroadcastNow
@@ -28,6 +29,23 @@ class NotificationCreated implements ShouldBroadcastNow
     public function broadcastAs(): string
     {
         return 'notification.created';
+    }
+
+
+    public function broadcastWhen(): bool
+    {
+        $default = Config::get('broadcasting.default');
+
+        if ($default !== 'pusher') {
+            return true;
+        }
+
+        $key = Config::get('broadcasting.connections.pusher.key');
+        $secret = Config::get('broadcasting.connections.pusher.secret');
+        $appId = Config::get('broadcasting.connections.pusher.app_id');
+        $host = Config::get('broadcasting.connections.pusher.options.host');
+
+        return filled($key) && filled($secret) && filled($appId) && filled($host);
     }
 
     public function broadcastWith(): array
