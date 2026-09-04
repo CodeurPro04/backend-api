@@ -7,6 +7,7 @@ use App\Models\Property;
 use App\Models\PropertyMedia;
 use App\Models\PropertyRequest;
 use App\Models\ActivityLog;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -187,6 +188,7 @@ class PropertyController extends Controller
             // Tri
             $sortBy = $request->get('sort_by', 'created_at');
             $sortOrder = $request->get('sort_order', 'desc');
+            CountryContext::applyPriority($query, $request, 'properties');
             $query->orderBy($sortBy, $sortOrder);
 
             // Pagination
@@ -340,6 +342,8 @@ class PropertyController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'features' => 'nullable|array',
             'features.*' => 'exists:property_features,id',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ], $this->propertyMediaRules()));
 
         if ($validator->fails()) {
@@ -354,6 +358,7 @@ class PropertyController extends Controller
             $property = Property::create([
                 'uuid' => (string) Str::uuid(),
                 'slug' => Str::slug($request->title) . '-' . Str::random(6),
+                'country_id' => CountryContext::countryIdForUser($request->user(), $request),
                 'user_id' => $request->user()->id,
                 'property_type_id' => $request->property_type_id,
                 'title' => $request->title,
@@ -700,6 +705,8 @@ class PropertyController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'features' => 'nullable|array',
             'features.*' => 'exists:property_features,id',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ], $this->propertyMediaRules()));
 
         if ($validator->fails()) {
@@ -728,6 +735,7 @@ class PropertyController extends Controller
             $property = Property::create([
                 'uuid' => (string) Str::uuid(),
                 'slug' => Str::slug($request->title) . '-' . Str::random(6),
+                'country_id' => CountryContext::countryIdForUser($propertyRequest->user, $request) ?: $propertyRequest->country_id,
                 'user_id' => $propertyRequest->user_id,
                 'agent_id' => $request->user()->id,
                 'property_type_id' => $request->property_type_id,
@@ -1188,13 +1196,15 @@ class PropertyController extends Controller
     /**
      * PropriÃ‡Â¸tÃ‡Â¸s par type (public)
      */
-    public function byType($slug)
+    public function byType(Request $request, $slug)
     {
         try {
-            $properties = Property::with(['propertyType', 'user', 'primaryImage'])
+            $query = Property::with(['propertyType', 'user', 'primaryImage'])
                 ->whereHas('propertyType', fn($q) => $q->where('slug', $slug))
-                ->approved()
-                ->paginate(12);
+                ->approved();
+
+            CountryContext::applyPriority($query, $request, 'properties');
+            $properties = $query->orderByDesc('created_at')->paginate(12);
 
             return response()->json([
                 'success' => true,
@@ -1211,13 +1221,15 @@ class PropertyController extends Controller
     /**
      * PropriÃ‡Â¸tÃ‡Â¸s par ville (public)
      */
-    public function byCity($city)
+    public function byCity(Request $request, $city)
     {
         try {
-            $properties = Property::with(['propertyType', 'user', 'primaryImage'])
+            $query = Property::with(['propertyType', 'user', 'primaryImage'])
                 ->where('city', 'like', '%' . $city . '%')
-                ->approved()
-                ->paginate(12);
+                ->approved();
+
+            CountryContext::applyPriority($query, $request, 'properties');
+            $properties = $query->orderByDesc('created_at')->paginate(12);
 
             return response()->json([
                 'success' => true,
@@ -1234,13 +1246,15 @@ class PropertyController extends Controller
     /**
      * PropriÃ‡Â¸tÃ‡Â¸s featured (public)
      */
-    public function featured()
+    public function featured(Request $request)
     {
         try {
-            $properties = Property::with(['propertyType', 'user', 'primaryImage'])
+            $query = Property::with(['propertyType', 'user', 'primaryImage'])
                 ->featured()
-                ->approved()
-                ->paginate(12);
+                ->approved();
+
+            CountryContext::applyPriority($query, $request, 'properties');
+            $properties = $query->orderByDesc('created_at')->paginate(12);
 
             return response()->json([
                 'success' => true,

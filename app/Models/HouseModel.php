@@ -12,6 +12,7 @@ class HouseModel extends Model
 
     protected $fillable = [
         'uuid',
+        'country_id',
         'created_by',
         'title',
         'slug',
@@ -54,5 +55,9 @@ class HouseModel extends Model
     {
         return $this->belongsTo(User::class, 'created_by');
     }
-}
 
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
+    }
+}

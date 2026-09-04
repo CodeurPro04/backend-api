@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PropertyRequest;
 use App\Models\User;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -14,6 +15,8 @@ class PropertyRequestController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'description' => 'required|string',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         if ($validator->fails()) {
@@ -24,6 +27,7 @@ class PropertyRequestController extends Controller
         }
 
         $propertyRequest = PropertyRequest::create([
+            'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'user_id' => $request->user()->id,
             'description' => $request->description,
             'status' => 'pending',

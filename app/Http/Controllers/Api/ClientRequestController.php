@@ -12,6 +12,7 @@ use App\Models\Notification;
 use App\Models\Property;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -103,6 +104,7 @@ class ClientRequestController extends Controller
         $user = User::create([
             'first_name' => $nameParts['first_name'],
             'last_name' => $nameParts['last_name'],
+            'country_id' => CountryContext::resolveIdFromRequest($request),
             'email' => $email,
             'phone' => $phone,
             'password' => Hash::make($defaultPassword),
@@ -148,6 +150,8 @@ class ClientRequestController extends Controller
             'department' => 'nullable|string|max:255',
             'project_description' => 'nullable|string',
             'consent' => 'nullable|boolean',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         if ($validator->fails()) {
@@ -183,6 +187,11 @@ class ClientRequestController extends Controller
             }
         }
 
+        $countryId = CountryContext::resolveIdFromRequest($request)
+            ?: Property::where('id', $propertyId)->value('country_id')
+            ?: ConstructionProject::where('id', $constructionId)->value('country_id')
+            ?: InvestmentProject::where('id', $investmentId)->value('country_id');
+
         DB::beginTransaction();
 
         try {
@@ -204,6 +213,7 @@ class ClientRequestController extends Controller
             }
 
             $clientRequest = ClientRequest::create([
+                'country_id' => $countryId ?: $user?->country_id,
                 'user_id' => $user?->id,
                 'property_id' => $propertyId,
                 'construction_project_id' => $constructionId,
@@ -555,4 +565,3 @@ class ClientRequestController extends Controller
         ]);
     }
 }
-

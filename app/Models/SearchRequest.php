@@ -11,7 +11,7 @@ class SearchRequest extends Model
     use HasFactory;
 
     protected $fillable = [
-        'uuid', 'user_id', 'agent_id', 'property_type_id',
+        'uuid', 'country_id', 'user_id', 'agent_id', 'property_type_id',
         'transaction_type', 'budget_min', 'budget_max',
         'location_preferences', 'bedrooms_min', 'surface_min',
         'additional_requirements', 'status', 'priority',
@@ -45,6 +45,11 @@ class SearchRequest extends Model
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function agent()

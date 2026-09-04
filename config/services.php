@@ -35,6 +35,20 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Ollama — IA locale sur le VPS
+    |--------------------------------------------------------------------------
+    */
+    'ollama' => [
+        'url' => env('OLLAMA_URL', 'http://localhost:11434'),
+        'models' => [
+            'construction'  => env('OLLAMA_MODEL_CONSTRUCTION', 'llama3'),
+            'immobilier'    => env('OLLAMA_MODEL_IMMOBILIER', 'llama3'),
+            'investissement' => env('OLLAMA_MODEL_INVESTISSEMENT', 'llama3'),
+        ],
+    ],
+
     'pusher' => [
         'key' => env('PUSHER_APP_KEY'),
         'secret' => env('PUSHER_APP_SECRET'),

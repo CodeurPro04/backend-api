@@ -37,7 +37,13 @@ class PropertyFeatureSeeder extends Seeder
         ];
 
         foreach ($features as $feature) {
-            PropertyFeature::create($feature);
+            PropertyFeature::updateOrCreate(
+                [
+                    'name' => $feature['name'],
+                    'category' => $feature['category'],
+                ],
+                $feature
+            );
         }
     }
 }

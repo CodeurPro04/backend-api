@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Partnership;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -63,6 +64,8 @@ class PartnershipController extends Controller
             'certifications' => 'nullable|array',
             'certifications.*' => 'string',
             'logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ];
     }
 
@@ -71,10 +74,11 @@ class PartnershipController extends Controller
         return 'Abi@' . strtoupper(Str::random(2)) . random_int(100000, 999999);
     }
 
-    private function createPartnershipRecord(array $validated, int $userId, ?string $logoPath = null): Partnership
+    private function createPartnershipRecord(array $validated, int $userId, ?int $countryId = null, ?string $logoPath = null): Partnership
     {
         return Partnership::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => $countryId,
             'user_id' => $userId,
             'company_name' => $validated['company_name'],
             'company_type' => $validated['company_type'],
@@ -96,6 +100,13 @@ class PartnershipController extends Controller
     public function publicApply(Request $request)
     {
         $validated = $request->validate($this->partnershipRules(true, true));
+        $countryId = CountryContext::resolveIdFromRequest($request);
+        if (!$countryId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Veuillez sélectionner un pays.',
+            ], 422);
+        }
 
         $role = Role::where('slug', 'entreprise')->first();
         if (!$role) {
@@ -114,6 +125,7 @@ class PartnershipController extends Controller
             $user = User::create([
                 'first_name' => $validated['company_name'],
                 'last_name' => 'Entreprise',
+                'country_id' => $countryId,
                 'email' => $validated['email'],
                 'phone' => $validated['phone'] ?? null,
                 'password' => Hash::make($defaultPassword),
@@ -125,7 +137,7 @@ class PartnershipController extends Controller
                 $logoPath = $request->file('logo')->store("partnerships/{$user->uuid}/logo", 'public');
             }
 
-            $application = $this->createPartnershipRecord($validated, $user->id, $logoPath);
+            $application = $this->createPartnershipRecord($validated, $user->id, $countryId, $logoPath);
 
             ActivityLog::create([
                 'user_id' => $user->id,
@@ -168,6 +180,7 @@ class PartnershipController extends Controller
     {
         $user = $request->user();
         $validated = $request->validate($this->partnershipRules(true, false));
+        $countryId = CountryContext::countryIdForUser($user, $request);
 
         $logoPath = null;
 
@@ -175,7 +188,7 @@ class PartnershipController extends Controller
             $logoPath = $request->file('logo')->store("partnerships/{$user->uuid}/logo", 'public');
         }
 
-        $application = $this->createPartnershipRecord($validated, $user->id, $logoPath);
+        $application = $this->createPartnershipRecord($validated, $user->id, $countryId, $logoPath);
 
         return response()->json([
             'success' => true,
@@ -205,6 +218,8 @@ class PartnershipController extends Controller
 
         $payload = $validated;
         unset($payload['logo']);
+        unset($payload['country_code']);
+        $payload['country_id'] = CountryContext::countryIdForUser($user, $request);
 
         if ($request->hasFile('logo')) {
             if ($application->logo_path) {
@@ -272,11 +287,12 @@ class PartnershipController extends Controller
     }
 
     // PUBLIC - Liste des partenaires approuves
-    public function publicApproved()
+    public function publicApproved(Request $request)
     {
-        $partners = Partnership::where('status', 'approved')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $query = Partnership::where('status', 'approved')->with('country');
+
+        CountryContext::applyPriority($query, $request, 'partnerships');
+        $partners = $query->orderBy('created_at', 'desc')->get();
 
         return response()->json([
             'success' => true,

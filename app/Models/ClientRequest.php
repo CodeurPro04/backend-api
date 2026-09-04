@@ -12,6 +12,7 @@ class ClientRequest extends Model
 
     protected $fillable = [
         'uuid',
+        'country_id',
         'user_id',
         'property_id',
         'construction_project_id',
@@ -58,6 +59,11 @@ class ClientRequest extends Model
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function property()

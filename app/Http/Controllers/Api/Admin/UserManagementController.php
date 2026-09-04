@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Role;
+use App\Support\CountryContext;
 use Illuminate\Support\Str;
 
 class UserManagementController extends Controller
@@ -20,7 +21,7 @@ class UserManagementController extends Controller
 
     public function index()
     {
-        $users = User::with(['role', 'latestPartnership'])->paginate(20);
+        $users = User::with(['role', 'latestPartnership', 'country'])->paginate(20);
         $users->setCollection($users->getCollection()->map(fn (User $user) => $this->appendPartnerType($user)));
 
         return response()->json($users);
@@ -37,6 +38,8 @@ class UserManagementController extends Controller
             'phone' => 'nullable|string|max:20',
             'is_active' => 'boolean',
             'agent_type' => 'nullable|in:constructeur,immobilier,investissement',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $role = Role::where('slug', $validated['role'])->first();
@@ -45,10 +48,16 @@ class UserManagementController extends Controller
             return response()->json(['message' => 'Rôle invalide'], 400);
         }
 
+        $countryId = CountryContext::resolveIdFromRequest($request);
+        if (!in_array($role->slug, ['gestionnaire', 'admin', 'administrateur'], true) && !$countryId) {
+            return response()->json(['message' => 'Veuillez sélectionner un pays.'], 422);
+        }
+
         $user = User::create([
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
             'email' => $validated['email'],
+            'country_id' => $countryId,
             'phone' => $validated['phone'] ?? null,
             'password' => bcrypt($validated['password']),
             'role_id' => $role->id,
@@ -56,14 +65,14 @@ class UserManagementController extends Controller
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
-        $user->load(['role', 'latestPartnership']);
+        $user->load(['role', 'latestPartnership', 'country']);
 
         return response()->json($this->appendPartnerType($user), 201);
     }
 
     public function show($id)
     {
-        $user = User::with(['role', 'latestPartnership'])->findOrFail($id);
+        $user = User::with(['role', 'latestPartnership', 'country'])->findOrFail($id);
 
         return response()->json($this->appendPartnerType($user));
     }
@@ -82,6 +91,8 @@ class UserManagementController extends Controller
             'phone' => 'nullable|string|max:20',
             'is_active' => 'boolean',
             'agent_type' => 'nullable|in:constructeur,immobilier,investissement',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         if (isset($validated['password'])) {
@@ -98,9 +109,13 @@ class UserManagementController extends Controller
             }
             unset($validated['role']);
         }
+        unset($validated['country_code']);
+        if ($request->has('country_id') || $request->has('country_code')) {
+            $validated['country_id'] = CountryContext::resolveIdFromRequest($request);
+        }
 
         $user->update($validated);
-        $user->load(['role', 'latestPartnership']);
+        $user->load(['role', 'latestPartnership', 'country']);
 
         return response()->json($this->appendPartnerType($user));
     }
@@ -135,7 +150,7 @@ class UserManagementController extends Controller
 
         $user->role_id = $role->id;
         $user->save();
-        $user->load(['role', 'latestPartnership']);
+        $user->load(['role', 'latestPartnership', 'country']);
 
         return response()->json($this->appendPartnerType($user));
     }
@@ -202,7 +217,38 @@ class UserManagementController extends Controller
     {
         $agents = User::whereHas('role', function ($query) {
             $query->where('slug', 'agent');
-        })->where('is_active', true)->get();
+        })->with('country')->where('is_active', true)->get();
         return response()->json($agents);
+    }
+
+    // PUBLIC - Liste des agents actifs (page d'accueil)
+    public function publicAgents(Request $request)
+    {
+        $query = User::whereHas('role', function ($query) {
+            $query->where('slug', 'agent');
+        })
+        ->where('is_active', true)
+        ->with('country')
+        ->select(['id', 'country_id', 'uuid', 'first_name', 'last_name', 'avatar', 'phone', 'agent_type']);
+
+        CountryContext::applyPriority($query, $request, 'users');
+
+        $agents = $query
+        ->orderBy('created_at', 'desc')
+        ->get()
+        ->map(function ($agent) {
+            return [
+                'uuid'       => $agent->uuid,
+                'first_name' => $agent->first_name,
+                'last_name'  => $agent->last_name,
+                'full_name'  => $agent->first_name . ' ' . $agent->last_name,
+                'avatar'     => $agent->avatar,
+                'phone'      => $agent->phone,
+                'agent_type' => $agent->agent_type,
+                'country'    => $agent->country,
+            ];
+        });
+
+        return response()->json(['success' => true, 'data' => $agents]);
     }
 }

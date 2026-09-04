@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Notification;
 use App\Models\SearchRequest;
 use App\Models\User;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -53,6 +54,8 @@ class SearchRequestController extends Controller
             'bedrooms_min' => 'nullable|integer|min:0',
             'surface_min' => 'nullable|numeric|min:0',
             'additional_requirements' => 'nullable|string',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         if ($validator->fails()) {
@@ -64,6 +67,7 @@ class SearchRequestController extends Controller
 
         try {
             $searchRequest = SearchRequest::create([
+                'country_id' => CountryContext::countryIdForUser($request->user(), $request),
                 'user_id' => $request->user()->id,
                 'property_type_id' => $request->property_type_id,
                 'transaction_type' => $request->transaction_type,

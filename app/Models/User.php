@@ -15,8 +15,8 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes, HasRoles;
 
     protected $fillable = [
-        'uuid', 'role_id', 'agent_type', 'first_name', 'last_name', 'email', 
-        'phone', 'password', 'avatar', 'is_active'
+        'uuid', 'country_id', 'role_id', 'agent_type', 'first_name', 'last_name', 'email',
+        'phone', 'password', 'avatar', 'interests', 'is_active'
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -24,9 +24,10 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'phone_verified_at' => 'datetime',
-        'last_login_at' => 'datetime',
-        'is_active' => 'boolean',
-        'password' => 'hashed',
+        'last_login_at'     => 'datetime',
+        'is_active'         => 'boolean',
+        'password'          => 'hashed',
+        'interests'         => 'array',
     ];
 
     protected static function boot()
@@ -43,6 +44,11 @@ class User extends Authenticatable
     public function role()
     {
         return $this->belongsTo(Role::class);
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function properties()
@@ -103,6 +109,17 @@ class User extends Authenticatable
     public function latestPartnership()
     {
         return $this->hasOne(Partnership::class, 'user_id')->latestOfMany();
+    }
+
+    public function approvedFinancialPartnership()
+    {
+        return $this->hasOne(Partnership::class, 'user_id')
+            ->where('status', 'approved')
+            ->where(function ($query) {
+                $query->where('company_type', 'like', '%invest%')
+                    ->orWhere('company_type', 'like', '%financ%');
+            })
+            ->latestOfMany();
     }
 
     // Helper methods

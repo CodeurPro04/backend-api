@@ -9,9 +9,12 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             RoleSeeder::class,
+            CountrySeeder::class,
             AdminSeeder::class,
             PropertyTypeSeeder::class,
             PropertyFeatureSeeder::class,
+            DemoDataSeeder::class,
+            ProductAddressSeeder::class,
         ]);
     }
 }

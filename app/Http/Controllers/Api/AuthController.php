@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\ActivityLog;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -15,7 +16,7 @@ class AuthController extends Controller
 {
     private function serializeUser(User $user): array
     {
-        $user->loadMissing(['role', 'latestPartnership']);
+        $user->loadMissing(['role', 'latestPartnership', 'country']);
 
         return [
             'id' => $user->id,
@@ -30,7 +31,15 @@ class AuthController extends Controller
             'agent_type' => $user->agent_type,
             'partner_type' => $user->latestPartnership?->company_type,
             'partner_application_status' => $user->latestPartnership?->status,
+            'country_id' => $user->country_id,
+            'country' => $user->country ? [
+                'id' => $user->country->id,
+                'name' => $user->country->name,
+                'code' => $user->country->code,
+                'flag' => $user->country->flag,
+            ] : null,
             'avatar' => $user->avatar,
+            'interests' => $user->interests ?? [],
             'email_verified_at' => $user->email_verified_at,
             'is_active' => $user->is_active,
             'last_login_at' => $user->last_login_at,
@@ -44,19 +53,44 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string|max:20',
-            'password' => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()],
-            'role' => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise,gestionnaire,administrateur',
-            'agent_type' => 'nullable|in:constructeur,immobilier,investissement',
+            'first_name'  => 'required|string|max:100',
+            'last_name'   => 'required|string|max:100',
+            'email'       => 'required|email|unique:users,email',
+            'phone'       => 'nullable|string|max:20',
+            'password'    => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()],
+            'role'        => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise,gestionnaire,administrateur',
+            'agent_type'  => 'nullable|in:constructeur,immobilier,investissement',
+            'country_id'  => 'nullable|exists:countries,id',
+            'country_code'=> 'nullable|exists:countries,code',
+            'interests'   => 'nullable|array',
+            'interests.*' => 'nullable|string|in:immobilier,construction,investissement',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
                 'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $roleSlug = $request->input('role');
+        $countryId = CountryContext::resolveIdFromRequest($request);
+        if (!in_array($roleSlug, ['gestionnaire', 'administrateur', 'admin'], true) && !$countryId) {
+            return response()->json([
+                'success' => false,
+                'errors' => [
+                    'country' => ['Veuillez sélectionner un pays.']
+                ]
+            ], 422);
+        }
+
+        $interests = $request->input('interests', []);
+        if ($roleSlug === 'visiteur' && (!is_array($interests) || count($interests) < 1)) {
+            return response()->json([
+                'success' => false,
+                'errors' => [
+                    'interests' => ['Veuillez sélectionner au moins un centre d\'intérêt.']
+                ]
             ], 422);
         }
 
@@ -77,13 +111,15 @@ class AuthController extends Controller
             // Creer l'utilisateur
             $user = User::create([
                 'first_name' => $request->first_name,
-                'last_name' => $request->last_name,
-                'email' => $request->email,
-                'phone' => $request->phone,
-                'password' => Hash::make($request->password),
-                'role_id' => $role->id,
+                'last_name'  => $request->last_name,
+                'email'      => $request->email,
+                'country_id' => $countryId,
+                'phone'      => $request->phone,
+                'password'   => Hash::make($request->password),
+                'role_id'    => $role->id,
                 'agent_type' => $request->agent_type,
-                'is_active' => !$requiresActivation,
+                'interests'  => $request->interests ?? [],
+                'is_active'  => !$requiresActivation,
             ]);
 
             // Log l'activite
@@ -213,7 +249,7 @@ public function login(Request $request)
      */
     public function profile(Request $request)
     {
-        $user = $request->user()->load(['role', 'latestPartnership']);
+        $user = $request->user()->load(['role', 'latestPartnership', 'country']);
 
         return response()->json([
             'success' => true,
@@ -231,10 +267,14 @@ public function login(Request $request)
         $user = $request->user();
 
         $validator = Validator::make($request->all(), [
-            'first_name' => 'sometimes|string|max:100',
-            'last_name' => 'sometimes|string|max:100',
-            'phone' => 'sometimes|nullable|string|max:20',
-            'avatar' => 'sometimes|nullable|image|max:2048',
+            'first_name'  => 'sometimes|string|max:100',
+            'last_name'   => 'sometimes|string|max:100',
+            'phone'       => 'sometimes|nullable|string|max:20',
+            'avatar'      => 'sometimes|nullable|image|max:2048',
+            'country_id'  => 'sometimes|nullable|exists:countries,id',
+            'country_code'=> 'sometimes|nullable|exists:countries,code',
+            'interests'   => 'sometimes|nullable|array',
+            'interests.*' => 'string|in:immobilier,construction,investissement',
         ]);
 
         if ($validator->fails()) {
@@ -246,6 +286,12 @@ public function login(Request $request)
 
         try {
             $data = $request->only(['first_name', 'last_name', 'phone']);
+            if ($request->has('interests')) {
+                $data['interests'] = $request->interests ?? [];
+            }
+            if ($request->has('country_id') || $request->has('country_code')) {
+                $data['country_id'] = CountryContext::resolveIdFromRequest($request);
+            }
 
             // Gestion de l'avatar
             if ($request->hasFile('avatar')) {
@@ -265,15 +311,7 @@ public function login(Request $request)
                 'success' => true,
                 'message' => 'Profil mis à jour avec succès',
                 'data' => [
-                    'user' => [
-                        'id' => $user->id,
-                        'uuid' => $user->uuid,
-                        'first_name' => $user->first_name,
-                        'last_name' => $user->last_name,
-                        'email' => $user->email,
-                        'phone' => $user->phone,
-                        'avatar' => $user->avatar,
-                    ]
+                    'user' => $this->serializeUser($user)
                 ]
             ]);
 
@@ -340,6 +378,4 @@ public function login(Request $request)
         }
     }
 }
-
-
 

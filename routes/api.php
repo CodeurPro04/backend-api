@@ -5,7 +5,9 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\AIChatController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\PartnerProductController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\PropertyTypeController;
 use App\Http\Controllers\Api\ConstructionProjectController;
@@ -16,6 +18,7 @@ use App\Http\Controllers\Api\PartnershipController;
 use App\Http\Controllers\Api\PropertyRequestController;
 use App\Http\Controllers\Api\ClientRequestController;
 use App\Http\Controllers\Api\HouseModelController;
+use App\Http\Controllers\Api\CountryController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Manager\ReportController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
@@ -29,6 +32,7 @@ use App\Http\Controllers\Api\NotificationController;
 
 // Routes publiques
 Route::prefix('v1')->group(function () {
+    Route::get('countries', [CountryController::class, 'index']);
 
     // Authentification
     Route::prefix('auth')->group(function () {
@@ -74,6 +78,17 @@ Route::prefix('v1')->group(function () {
     Route::get('house-models', [HouseModelController::class, 'index']);
     Route::get('house-models/{identifier}', [HouseModelController::class, 'show']);
 
+    // Agents (public - page accueil)
+    Route::get('agents/public', [UserManagementController::class, 'publicAgents']);
+
+    // IA Chat — Akapko Manawa / Djuêdjuê / Koffi Gombo
+    Route::post('ai/chat', [AIChatController::class, 'chat']);
+
+    // Produits / projets partenaires (public — approuvés uniquement)
+    Route::get('partnerships/{uuid}/products',      [PartnerProductController::class, 'publicList']);
+    Route::get('partnerships/{uuid}/construction',  [PartnerProductController::class, 'publicConstruction']);
+    Route::get('partnerships/{uuid}/investments',   [PartnerProductController::class, 'publicInvestments']);
+
 });
 
 // Routes protégées
@@ -98,6 +113,13 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 
     // Media securise
     Route::get('/media/{id}', [PropertyController::class, 'media']);
+
+    // Investissements (tous roles connectes)
+    Route::prefix('investments')->group(function () {
+        Route::get('/my-proposals', [InvestmentProjectController::class, 'myProposals']);
+        Route::get('/proposals/{uuid}', [InvestmentProjectController::class, 'proposalDetails']);
+        Route::post('/{uuid}/propose', [InvestmentProjectController::class, 'propose']);
+    });
 
     // Routes PROPRIÉTAIRE
     Route::middleware('checkrole:proprietaire')->prefix('proprietaire')->group(function () {
@@ -161,14 +183,31 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         });
     });
 
-    // Propositions d'investissement (tous roles connectes)
-    Route::post('/investments/{uuid}/propose', [InvestmentProjectController::class, 'propose']);
+    // (route déplacée dans le prefix /investments ci-dessus)
 
     // Routes ENTREPRISE PARTENAIRE
     Route::middleware('checkrole:entreprise')->prefix('partnership')->group(function () {
         Route::post('/apply', [PartnershipController::class, 'apply']);
         Route::get('/my-application', [PartnershipController::class, 'myApplication']);
         Route::put('/update', [PartnershipController::class, 'update']);
+
+        // Produits immobiliers (partenaire immobilier) → PartnerProduct
+        Route::get('/products', [PartnerProductController::class, 'myProducts']);
+        Route::post('/products', [PartnerProductController::class, 'store']);
+        Route::put('/products/{uuid}', [PartnerProductController::class, 'update']);
+        Route::delete('/products/{uuid}', [PartnerProductController::class, 'destroy']);
+
+        // Projets de construction (partenaire constructeur) → ConstructionProject natif
+        Route::get('/construction', [ConstructionProjectController::class, 'agentPublications']);
+        Route::post('/construction', [ConstructionProjectController::class, 'agentCreate']);
+        Route::put('/construction/{uuid}', [ConstructionProjectController::class, 'agentUpdate']);
+        Route::delete('/construction/{uuid}', [ConstructionProjectController::class, 'staffDestroy']);
+
+        // Projets d'investissement (partenaire investisseur) → InvestmentProject natif
+        Route::get('/investments', [InvestmentProjectController::class, 'agentPublications']);
+        Route::post('/investments', [InvestmentProjectController::class, 'agentCreate']);
+        Route::put('/investments/{uuid}', [InvestmentProjectController::class, 'agentUpdate']);
+        Route::delete('/investments/{uuid}', [InvestmentProjectController::class, 'destroy']);
     });
 
     // Routes AGENT IMMOBILIER
@@ -284,6 +323,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/{uuid}/assign', [PropertyRequestController::class, 'assign']);
         });
 
+        // Produits partenaires — validation gestionnaire
+        Route::prefix('partner-products')->group(function () {
+            Route::get('/pending', [PartnerProductController::class, 'pendingProducts']);
+            Route::get('/all', [PartnerProductController::class, 'allProducts']);
+            Route::post('/{uuid}/approve', [PartnerProductController::class, 'approve']);
+            Route::post('/{uuid}/reject', [PartnerProductController::class, 'reject']);
+        });
+
         // Rapports
         Route::get('/reports', [ReportController::class, 'index']);
 
@@ -361,6 +408,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/proposals/{uuid}/reject', [InvestmentProjectController::class, 'rejectProposal']);
             Route::post('/{uuid}/approve', [InvestmentProjectController::class, 'approveProject']);
             Route::post('/{uuid}/reject', [InvestmentProjectController::class, 'rejectProject']);
+        });
+
+        // Produits partenaires — validation admin
+        Route::prefix('partner-products')->group(function () {
+            Route::get('/pending', [PartnerProductController::class, 'pendingProducts']);
+            Route::get('/all', [PartnerProductController::class, 'allProducts']);
+            Route::post('/{uuid}/approve', [PartnerProductController::class, 'approve']);
+            Route::post('/{uuid}/reject', [PartnerProductController::class, 'reject']);
         });
 
         // Partenariats
@@ -449,4 +504,3 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         });
     });
 });
-

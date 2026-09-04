@@ -21,7 +21,10 @@ class PropertyTypeSeeder extends Seeder
         ];
 
         foreach ($types as $type) {
-            PropertyType::create($type);
+            PropertyType::updateOrCreate(
+                ['slug' => $type['slug']],
+                $type
+            );
         }
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\InvestmentProject;
 use App\Models\InvestmentProposal;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
@@ -14,9 +15,12 @@ class InvestmentProjectController extends Controller
     // Liste publique des projets
     public function index(Request $request)
     {
-        $projects = InvestmentProject::where('approval_status', 'approved')
-            ->orderBy('created_at', 'desc')
-            ->paginate(12);
+        $query = InvestmentProject::with(['creator.approvedFinancialPartnership'])
+            ->where('approval_status', 'approved');
+
+        CountryContext::applyPriority($query, $request, 'investment_projects');
+        $perPage = min((int) $request->get('per_page', 12), 100);
+        $projects = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json([
             'success' => true,
@@ -27,7 +31,8 @@ class InvestmentProjectController extends Controller
     // DÃ©tails d'un projet
     public function show($uuid)
     {
-        $project = InvestmentProject::where('uuid', $uuid)
+        $project = InvestmentProject::with(['creator.approvedFinancialPartnership'])
+            ->where('uuid', $uuid)
             ->where('approval_status', 'approved')
             ->firstOrFail();
         return response()->json([
@@ -85,10 +90,16 @@ class InvestmentProjectController extends Controller
         ]);
     }
 
-    // Investisseur - dÃ©tails proposition
-    public function proposalDetails($uuid)
+    // Détails proposition (protéger l'accès au propriétaire de la proposition)
+    public function proposalDetails(Request $request, $uuid)
     {
         $proposal = InvestmentProposal::with('investmentProject')->where('uuid', $uuid)->firstOrFail();
+        if ($proposal->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.'
+            ], 403);
+        }
         return response()->json([
             'success' => true,
             'data' => $proposal
@@ -144,10 +155,13 @@ class InvestmentProjectController extends Controller
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
             'featured' => 'nullable|boolean',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $project = InvestmentProject::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'created_by' => $request->user()->id,
             'title' => $validated['title'],
             'description' => $validated['description'] ?? null,
@@ -264,6 +278,8 @@ class InvestmentProjectController extends Controller
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
             'featured' => 'nullable|boolean',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
         $payload = $validated;
         unset(
@@ -274,8 +290,12 @@ class InvestmentProjectController extends Controller
             $payload['remove_documents'],
             $payload['remove_images'],
             $payload['remove_plans'],
-            $payload['remove_render_3d']
+            $payload['remove_render_3d'],
+            $payload['country_code']
         );
+        if ($request->has('country_id') || $request->has('country_code')) {
+            $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+        }
         $payload['approval_status'] = 'approved';
         $payload['rejection_reason'] = null;
         $project->update($payload);
@@ -427,10 +447,13 @@ class InvestmentProjectController extends Controller
             'render_3d' => 'nullable|array',
             'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'featured' => 'nullable|boolean',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $project = InvestmentProject::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'created_by' => $request->user()->id,
             'title' => $validated['title'],
             'description' => $validated['description'] ?? null,
@@ -556,6 +579,8 @@ class InvestmentProjectController extends Controller
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
             'featured' => 'nullable|boolean',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $payload = $validated;
@@ -567,8 +592,12 @@ class InvestmentProjectController extends Controller
             $payload['remove_documents'],
             $payload['remove_images'],
             $payload['remove_plans'],
-            $payload['remove_render_3d']
+            $payload['remove_render_3d'],
+            $payload['country_code']
         );
+        if ($request->has('country_id') || $request->has('country_code')) {
+            $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+        }
         $payload['approval_status'] = 'pending';
         $payload['rejection_reason'] = null;
         $project->update($payload);
@@ -718,12 +747,6 @@ class InvestmentProjectController extends Controller
         return response()->json(['success' => true]);
     }
 }
-
-
-
-
-
-
 
 
 

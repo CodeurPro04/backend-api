@@ -5,15 +5,19 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\HouseModel;
 use App\Models\Setting;
+use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class HouseModelController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $models = HouseModel::where('is_active', true)
+        $query = HouseModel::where('is_active', true);
+
+        CountryContext::applyPriority($query, $request, 'house_models');
+        $models = $query
             ->orderBy('display_order')
             ->orderByDesc('created_at')
             ->get();
@@ -106,10 +110,13 @@ class HouseModelController extends Controller
             'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
             'gallery_images' => 'nullable|array',
             'gallery_images.*' => 'image|mimes:jpg,jpeg,png,webp|max:4096',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $model = HouseModel::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'created_by' => $request->user()?->id,
             'title' => $validated['title'],
             'slug' => Str::slug($validated['title']) . '-' . Str::random(6),
@@ -169,6 +176,8 @@ class HouseModelController extends Controller
             'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
             'gallery_images' => 'nullable|array',
             'gallery_images.*' => 'image|mimes:jpg,jpeg,png,webp|max:4096',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $payload = $request->only([
@@ -177,7 +186,11 @@ class HouseModelController extends Controller
             'description',
             'display_order',
             'is_active',
+            'country_id',
         ]);
+        if ($request->has('country_code')) {
+            $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+        }
 
         if (!empty($payload)) {
             $model->fill($payload);
@@ -264,6 +277,7 @@ class HouseModelController extends Controller
             'is_active' => (bool) $model->is_active,
             'created_at' => $model->created_at,
             'updated_at' => $model->updated_at,
+            'country' => $model->country,
         ];
     }
     private function getSectionContent(): array
@@ -447,4 +461,3 @@ class HouseModelController extends Controller
         return url('/storage/' . ltrim($cleaned, '/'));
     }
 }
-

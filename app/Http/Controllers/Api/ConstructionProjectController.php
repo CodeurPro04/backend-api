@@ -10,18 +10,21 @@ use App\Models\Message;
 use App\Models\Notification;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\CountryContext;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 
 class ConstructionProjectController extends Controller
 {
     // Liste publique des projets de construction
-    public function publicIndex()
+    public function publicIndex(Request $request)
     {
-        $projects = ConstructionProject::where('status', 'published')
-            ->where('is_publication', true)
-            ->orderBy('created_at', 'desc')
-            ->paginate(10);
+        $query = ConstructionProject::where('status', 'published')
+            ->where('is_publication', true);
+
+        CountryContext::applyPriority($query, $request, 'construction_projects');
+        $perPage = min((int) $request->get('per_page', 10), 100);
+        $projects = $query->orderBy('created_at', 'desc')->paginate($perPage);
         return response()->json(array_merge(
             $projects->toArray(),
             ['spotlight' => $this->getSpotlightContent()]
@@ -76,10 +79,13 @@ class ConstructionProjectController extends Controller
             'surface_area' => 'nullable|numeric',
             'location' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:100',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $project = ConstructionProject::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => CountryContext::countryIdForUser($user, $request),
             'user_id' => $user->id,
             'title' => $validated['title'] ?? 'Demande de construction',
             'description' => $validated['description'],
@@ -305,10 +311,13 @@ class ConstructionProjectController extends Controller
             'render_3d_path.*' => 'nullable|string',
             'render_3d' => 'nullable|array',
             'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $project = ConstructionProject::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'user_id' => $request->user()->id,
             'title' => $validated['title'],
             'description' => $validated['description'],
@@ -402,6 +411,8 @@ class ConstructionProjectController extends Controller
             'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $payload = $validated;
@@ -411,8 +422,12 @@ class ConstructionProjectController extends Controller
             $payload['plans'],
             $payload['remove_plans'],
             $payload['render_3d'],
-            $payload['remove_render_3d']
+            $payload['remove_render_3d'],
+            $payload['country_code']
         );
+        if ($request->has('country_id') || $request->has('country_code')) {
+            $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+        }
         if (array_key_exists('status', $payload) && $payload['status'] !== 'rejected') {
             $payload['rejection_reason'] = null;
         }
@@ -501,10 +516,13 @@ class ConstructionProjectController extends Controller
             'render_3d_path.*' => 'nullable|string',
             'render_3d' => 'nullable|array',
             'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $project = ConstructionProject::create([
             'uuid' => (string) Str::uuid(),
+            'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'user_id' => $request->user()->id,
             'title' => $validated['title'],
             'description' => $validated['description'],
@@ -593,6 +611,8 @@ class ConstructionProjectController extends Controller
             'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
         ]);
 
         $payload = $validated;
@@ -602,8 +622,12 @@ class ConstructionProjectController extends Controller
             $payload['plans'],
             $payload['remove_plans'],
             $payload['render_3d'],
-            $payload['remove_render_3d']
+            $payload['remove_render_3d'],
+            $payload['country_code']
         );
+        if ($request->has('country_id') || $request->has('country_code')) {
+            $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+        }
         $payload['status'] = 'submitted';
         $payload['is_publication'] = true;
         $project->update($payload);

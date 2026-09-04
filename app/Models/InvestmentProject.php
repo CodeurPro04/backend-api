@@ -11,7 +11,7 @@ class InvestmentProject extends Model
     use HasFactory;
 
     protected $fillable = [
-        'uuid', 'created_by', 'title', 'slug', 'description',
+        'uuid', 'country_id', 'created_by', 'title', 'slug', 'description',
         'project_type', 'location', 'city', 'reference_code', 'postal_code', 'surface_area', 'total_investment',
         'min_investment', 'expected_return', 'duration_months',
         'status', 'approval_status', 'rejection_reason', 'start_date', 'end_date', 'documents_path',
@@ -50,6 +50,11 @@ class InvestmentProject extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function proposals()

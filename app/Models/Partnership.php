@@ -11,7 +11,7 @@ class Partnership extends Model
     use HasFactory;
 
     protected $fillable = [
-        'uuid', 'user_id', 'company_name', 'company_type',
+        'uuid', 'country_id', 'user_id', 'company_name', 'company_type',
         'registration_number', 'tax_number', 'address', 'city',
         'phone', 'email', 'website', 'logo_path', 'description',
         'services', 'certifications',
@@ -41,6 +41,11 @@ class Partnership extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function approver()

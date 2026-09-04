@@ -11,7 +11,7 @@ class ConstructionProject extends Model
     use HasFactory;
 
     protected $fillable = [
-        'uuid', 'user_id', 'agent_id', 'title', 'description',
+        'uuid', 'country_id', 'user_id', 'agent_id', 'title', 'description',
         'project_type', 'budget_min', 'budget_max', 'surface_area',
         'location', 'city', 'status', 'is_publication', 'rejection_reason', 'plan_3d_path', 'documents_path',
         'images_path', 'plans_path', 'render_3d_path', 'estimated_duration', 'start_date', 'end_date'
@@ -43,6 +43,11 @@ class ConstructionProject extends Model
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function agent()

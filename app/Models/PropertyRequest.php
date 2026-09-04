@@ -12,6 +12,7 @@ class PropertyRequest extends Model
 
     protected $fillable = [
         'uuid',
+        'country_id',
         'user_id',
         'agent_id',
         'property_id',
@@ -42,6 +43,11 @@ class PropertyRequest extends Model
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
     }
 
     public function agent()
