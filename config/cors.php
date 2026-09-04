@@ -19,7 +19,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['https://ghostwhite-seahorse-728382.hostingersite.com','https://goldenrod-wildcat-186780.hostingersite.com','http://localhost:5173', 'http://localhost:5174', 'http://localhost:8000'],
+    'allowed_origins' => [
+        'https://africabuildinvest.com',
+        'https://api.africabuildinvest.com',
+        'https://back-office.africabuildinvest.com',
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:8000',
+    ],
 
     'allowed_origins_patterns' => [],
 
