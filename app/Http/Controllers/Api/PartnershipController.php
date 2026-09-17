@@ -328,11 +328,16 @@ class PartnershipController extends Controller
     }
 
     // ADMIN - Liste toutes les demandes
-    public function all()
+    public function all(Request $request)
     {
-        $applications = Partnership::with(['user', 'approver'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+        $query = Partnership::with(['user', 'approver']);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $perPage = min((int) $request->input('per_page', 20), 100) ?: 20;
+        $applications = $query->orderBy('created_at', 'desc')->paginate($perPage);
         return response()->json($applications);
     }
 

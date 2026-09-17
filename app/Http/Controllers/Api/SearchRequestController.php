@@ -123,10 +123,11 @@ class SearchRequestController extends Controller
     public function pending(Request $request)
     {
         try {
+            $perPage = min((int) $request->get('per_page', 15), 100);
             $requests = SearchRequest::with($this->baseRelations())
                 ->whereIn('status', ['pending', 'approved', 'agent_rejected'])
                 ->orderBy('created_at', 'desc')
-                ->paginate(15);
+                ->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -156,7 +157,7 @@ class SearchRequestController extends Controller
         try {
             $searchRequest = SearchRequest::where('uuid', $uuid)->firstOrFail();
             $agent = User::findOrFail($request->agent_id);
-            if ($agent->agent_type && $agent->agent_type !== 'immobilier') {
+            if ($agent->agent_type !== 'immobilier') {
                 return response()->json([
                     'success' => false,
                     'message' => 'Seuls les agents immobiliers peuvent etre assignes.',
@@ -480,10 +481,11 @@ class SearchRequestController extends Controller
     public function managerHistory(Request $request)
     {
         try {
+            $perPage = min((int) $request->get('per_page', 15), 100);
             $requests = SearchRequest::with($this->baseRelations())
                 ->whereIn('status', ['approved', 'rejected', 'assigned', 'agent_approved', 'in_progress', 'fulfilled', 'deal_concluded'])
                 ->orderBy('updated_at', 'desc')
-                ->paginate(15);
+                ->paginate($perPage);
 
             return response()->json([
                 'success' => true,

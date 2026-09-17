@@ -231,7 +231,12 @@ class PropertyController extends Controller
             }
 
             if ($request->has('status')) {
-                $query->where('status', $request->status);
+                // "draft" recouvre aussi "rejected" cote UI (meme case "a traiter").
+                if ($request->status === 'draft') {
+                    $query->whereIn('status', ['draft', 'rejected']);
+                } else {
+                    $query->where('status', $request->status);
+                }
             }
 
             if ($request->has('min_price')) {
@@ -269,9 +274,17 @@ class PropertyController extends Controller
             $perPage = $request->get('per_page', 12);
             $properties = $query->paginate($perPage);
 
+            $stats = [
+                'total' => Property::count(),
+                'approved' => Property::where('status', 'approved')->count(),
+                'pending' => Property::where('status', 'pending')->count(),
+                'draft' => Property::whereIn('status', ['draft', 'rejected'])->count(),
+            ];
+
             return response()->json([
                 'success' => true,
-                'data' => $properties
+                'data' => $properties,
+                'stats' => $stats,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -492,11 +505,22 @@ class PropertyController extends Controller
                 'property_type_id' => 'sometimes|exists:property_types,id',
                 'transaction_type' => 'sometimes|in:vente,location',
                 'price' => 'sometimes|numeric|min:0',
+                'currency' => 'nullable|string|max:10',
+                'negotiable' => 'nullable|boolean',
                 'surface_area' => 'nullable|numeric|min:0',
+                'land_area' => 'nullable|numeric|min:0',
                 'bedrooms' => 'nullable|integer|min:0',
                 'bathrooms' => 'nullable|integer|min:0',
+                'parking_spaces' => 'nullable|integer|min:0',
+                'floor_number' => 'nullable|integer',
+                'total_floors' => 'nullable|integer',
+                'year_built' => 'nullable|integer|min:1800|max:' . date('Y'),
                 'address' => 'sometimes|string',
                 'city' => 'sometimes|string|max:100',
+                'commune' => 'nullable|string|max:100',
+                'quartier' => 'nullable|string|max:100',
+                'latitude' => 'nullable|numeric|between:-90,90',
+                'longitude' => 'nullable|numeric|between:-180,180',
             ]);
 
             if ($validator->fails()) {
@@ -512,11 +536,22 @@ class PropertyController extends Controller
                 'property_type_id',
                 'transaction_type',
                 'price',
+                'currency',
+                'negotiable',
                 'surface_area',
+                'land_area',
                 'bedrooms',
                 'bathrooms',
+                'parking_spaces',
+                'floor_number',
+                'total_floors',
+                'year_built',
                 'address',
-                'city'
+                'city',
+                'commune',
+                'quartier',
+                'latitude',
+                'longitude',
             ]));
 
             // Mettre Ã  jour les features si fournies
@@ -935,6 +970,8 @@ class PropertyController extends Controller
             'property_type_id' => 'sometimes|exists:property_types,id',
             'transaction_type' => 'sometimes|in:vente,location',
             'price' => 'sometimes|numeric|min:0',
+            'currency' => 'nullable|string|max:10',
+            'negotiable' => 'nullable|boolean',
             'surface_area' => 'nullable|numeric|min:0',
             'land_area' => 'nullable|numeric|min:0',
             'bedrooms' => 'nullable|integer|min:0',
@@ -968,6 +1005,8 @@ class PropertyController extends Controller
                 'property_type_id',
                 'transaction_type',
                 'price',
+                'currency',
+                'negotiable',
                 'surface_area',
                 'land_area',
                 'bedrooms',

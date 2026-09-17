@@ -4,23 +4,134 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Message;
-use App\Models\User;
 use App\Models\Notification;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class MessageController extends Controller
 {
-    private function createReplyMessage($senderId, Message $parentMessage, string $content, string $subjectPrefix = 'RE: ')
+    private const MESSAGE_MAX_LENGTH = 5000;
+    private const SUBJECT_MAX_LENGTH = 255;
+
+    /**
+     * Nettoie un contenu de message : retire les balises HTML/scripts et les
+     * espaces superflus. Le contenu est stocke et affiche en texte brut.
+     */
+    private function sanitizeContent(string $value): string
     {
+        return trim(strip_tags($value));
+    }
+
+    /**
+     * Derive un intitule de conversation a partir du premier message, pour
+     * les vues qui affichent encore un "objet" (listes agent/proprietaire).
+     * L'utilisateur ne saisit plus de sujet : tout se passe dans le chat.
+     */
+    private function deriveSubject(string $content): string
+    {
+        $flat = trim(preg_replace('/\s+/', ' ', $content));
+        if ($flat === '') {
+            return 'Conversation';
+        }
+        return mb_strlen($flat) > 60 ? mb_substr($flat, 0, 57) . '...' : $flat;
+    }
+
+    /**
+     * Cree une reponse et l'attache toujours a la racine du fil (et non au
+     * message precis auquel on repond), de sorte que toute la conversation
+     * reste groupee et s'affiche de maniere lineaire quel que soit le nombre
+     * d'allers-retours. Le sujet reste celui de la conversation d'origine,
+     * sans prefixe "RE:" : tout se lit comme une discussion continue.
+     */
+    private function createReplyMessage($senderId, Message $parentMessage, string $content): Message
+    {
+        $root = $parentMessage->threadRoot();
+
         return Message::create([
             'sender_id' => $senderId,
             'recipient_id' => $parentMessage->sender_id,
-            'property_id' => $parentMessage->property_id,
-            'subject' => $subjectPrefix . $parentMessage->subject,
-            'message' => $content,
-            'parent_message_id' => $parentMessage->id,
+            'property_id' => $root->property_id,
+            'subject' => $root->subject,
+            'message' => $this->sanitizeContent($content),
+            'parent_message_id' => $root->id,
         ]);
+    }
+
+    private function notifyReply(Message $parentMessage, Message $reply, $actor): void
+    {
+        try {
+            Notification::create([
+                'user_id' => $parentMessage->sender_id,
+                'type' => 'message_reply',
+                'title' => 'Nouvelle reponse',
+                'message' => "Vous avez recu une reponse de {$actor->full_name}",
+                'data' => json_encode(['message_uuid' => $reply->uuid]),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Notification message_reply failed', [
+                'error' => $e->getMessage(),
+                'message_uuid' => $reply->uuid,
+            ]);
+        }
+    }
+
+    /**
+     * Verifie que l'utilisateur participe au fil de discussion (racine ou
+     * n'importe quel message de la conversation), pas seulement au message
+     * uuid precis demande. Retourne false si l'acces doit etre refuse.
+     */
+    private function assertParticipant(Message $message, ?int $userId): bool
+    {
+        if ($message->isParticipant($userId)) {
+            return true;
+        }
+        return $message->threadParticipantIds()->contains($userId);
+    }
+
+    private function applyListFilters($query, Request $request)
+    {
+        if ($request->filled('search')) {
+            $search = $request->get('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('subject', 'like', "%{$search}%")
+                    ->orWhere('message', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->get('status') === 'unread') {
+            $query->where('is_read', false);
+        } elseif ($request->get('status') === 'read') {
+            $query->where('is_read', true);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Inclut/exclut les conversations archivees. Une conversation est
+     * archivee via sa racine (parent_message_id null) ; un message reponse
+     * est considere archive si le message racine dont il depend l'est.
+     * Reserve a la vue d'ensemble admin : n'est jamais applique aux
+     * boites de reception des utilisateurs finaux (owner/agent/index).
+     */
+    private function applyArchiveFilter($query, Request $request)
+    {
+        $wantArchived = $request->get('status') === 'archived';
+
+        $query->where(function ($q) use ($wantArchived) {
+            $q->where(function ($root) use ($wantArchived) {
+                $root->whereNull('parent_message_id');
+                $wantArchived ? $root->whereNotNull('archived_at') : $root->whereNull('archived_at');
+            })->orWhere(function ($reply) use ($wantArchived) {
+                $reply->whereNotNull('parent_message_id')
+                    ->whereHas('parentMessage', function ($parent) use ($wantArchived) {
+                        $wantArchived ? $parent->whereNotNull('archived_at') : $parent->whereNull('archived_at');
+                    });
+            });
+        });
+
+        return $query;
     }
 
     /**
@@ -29,10 +140,11 @@ class MessageController extends Controller
     public function index(Request $request)
     {
         try {
-            $messages = Message::with(['sender', 'recipient', 'property'])
-                ->forUser($request->user()->id)
-                ->orderBy('created_at', 'desc')
-                ->paginate(20);
+            $query = Message::with(['sender', 'recipient', 'property'])
+                ->forUser($request->user()->id);
+            $this->applyListFilters($query, $request);
+            $perPage = min((int) $request->get('per_page', 20), 100);
+            $messages = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -40,9 +152,10 @@ class MessageController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Message index failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la récupération'
+                'message' => 'Erreur lors de la recuperation'
             ], 500);
         }
     }
@@ -55,8 +168,8 @@ class MessageController extends Controller
         $validator = Validator::make($request->all(), [
             'recipient_id' => 'required|exists:users,id',
             'property_id' => 'nullable|exists:properties,id',
-            'subject' => 'required|string|max:255',
-            'message' => 'required|string',
+            'subject' => 'required|string|max:' . self::SUBJECT_MAX_LENGTH,
+            'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -66,26 +179,32 @@ class MessageController extends Controller
             ], 422);
         }
 
+        if ((int) $request->recipient_id === $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous ne pouvez pas vous envoyer un message a vous-meme.'
+            ], 422);
+        }
+
         try {
             $message = Message::create([
                 'sender_id' => $request->user()->id,
                 'recipient_id' => $request->recipient_id,
                 'property_id' => $request->property_id,
-                'subject' => $request->subject,
-                'message' => $request->message,
+                'subject' => $this->sanitizeContent($request->subject),
+                'message' => $this->sanitizeContent($request->message),
             ]);
 
-            // Créer une notification pour le destinataire
-                        try {
+            try {
                 Notification::create([
-                'user_id' => $request->recipient_id,
-                'type' => 'message_received',
-                'title' => 'Nouveau message',
-                'message' => "Vous avez reçu un message de {$request->user()->full_name}",
-                'data' => json_encode(['message_uuid' => $message->uuid]),
-            ]);
+                    'user_id' => $request->recipient_id,
+                    'type' => 'message_received',
+                    'title' => 'Nouveau message',
+                    'message' => "Vous avez recu un message de {$request->user()->full_name}",
+                    'data' => json_encode(['message_uuid' => $message->uuid]),
+                ]);
             } catch (\Throwable $e) {
-                logger()->error('Notification message_received failed', [
+                Log::error('Notification message_received failed', [
                     'error' => $e->getMessage(),
                     'message_uuid' => $message->uuid,
                 ]);
@@ -93,11 +212,12 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message envoyé avec succès',
+                'message' => 'Message envoye avec succes',
                 'data' => $message
             ], 201);
 
         } catch (\Exception $e) {
+            Log::error('Message send failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'envoi'
@@ -106,40 +226,53 @@ class MessageController extends Controller
     }
 
     /**
-     * Détails d'un message
+     * Details d'un message + fil de discussion complet
      */
-    public function show($uuid)
+    public function show(Request $request, $uuid)
     {
         try {
-            $message = Message::with(['sender', 'recipient', 'property', 'replies'])
+            $message = Message::with(['sender', 'recipient', 'property'])
                 ->where('uuid', $uuid)
                 ->firstOrFail();
 
-            // Marquer comme lu si c'est le destinataire
-            if ($message->recipient_id === auth()->id()) {
+            if (!$this->assertParticipant($message, $request->user()?->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Acces non autorise a ce message.'
+                ], 403);
+            }
+
+            if ($message->recipient_id === $request->user()->id) {
                 $message->markAsRead();
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $message
+                'data' => $message,
+                'thread' => $message->threadMessages(),
             ]);
 
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Message non trouvé'
+                'message' => 'Message non trouve'
             ], 404);
+        } catch (\Exception $e) {
+            Log::error('Message show failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation du message'
+            ], 500);
         }
     }
 
     /**
-     * Répondre à un message
+     * Repondre a un message
      */
     public function reply(Request $request, $uuid)
     {
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string',
+            'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -152,34 +285,32 @@ class MessageController extends Controller
         try {
             $parentMessage = Message::where('uuid', $uuid)->firstOrFail();
 
-            $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-
-            // Notification
-            try {
-                Notification::create([
-                    'user_id' => $parentMessage->sender_id,
-                    'type' => 'message_reply',
-                    'title' => 'Nouvelle r?ponse',
-                    'message' => "Vous avez re?u une r?ponse de {$request->user()->full_name}",
-                    'data' => json_encode(['message_uuid' => $reply->uuid]),
-                ]);
-            } catch (\Throwable $e) {
-                logger()->error('Notification reply failed', [
-                    'error' => $e->getMessage(),
-                    'message_uuid' => $reply->uuid,
-                ]);
+            if (!$this->assertParticipant($parentMessage, $request->user()?->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Acces non autorise a ce message.'
+                ], 403);
             }
+
+            $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
+            $this->notifyReply($parentMessage, $reply, $request->user());
 
             return response()->json([
                 'success' => true,
-                'message' => 'Réponse envoyée',
+                'message' => 'Reponse envoyee',
                 'data' => $reply
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la réponse'
+                'message' => 'Message non trouve'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Message reply failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la reponse'
             ], 500);
         }
     }
@@ -190,11 +321,13 @@ class MessageController extends Controller
     public function agentMessages(Request $request)
     {
         try {
-            $messages = Message::with(['sender', 'property'])
-                ->where('recipient_id', $request->user()->id)
-                ->orderBy('is_read', 'asc')
+            $query = Message::with(['sender', 'property'])
+                ->where('recipient_id', $request->user()->id);
+            $this->applyListFilters($query, $request);
+            $perPage = min((int) $request->get('per_page', 20), 100);
+            $messages = $query->orderBy('is_read', 'asc')
                 ->orderBy('created_at', 'desc')
-                ->paginate(20);
+                ->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -202,20 +335,21 @@ class MessageController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Agent messages list failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur'
+                'message' => 'Erreur lors de la recuperation'
             ], 500);
         }
     }
 
     /**
-     * RÇ¸pondre Çÿ un message (agent)
+     * Repondre a un message (agent)
      */
     public function respond(Request $request, $uuid)
     {
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string',
+            'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -226,35 +360,29 @@ class MessageController extends Controller
         }
 
         try {
-            $parentMessage = Message::where('uuid', $uuid)->firstOrFail();
+            $parentMessage = Message::where('uuid', $uuid)
+                ->where('recipient_id', $request->user()->id)
+                ->firstOrFail();
 
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-
-            try {
-                Notification::create([
-                    'user_id' => $parentMessage->sender_id,
-                    'type' => 'message_reply',
-                    'title' => 'Nouvelle r??ponse',
-                    'message' => "Vous avez re??u une r??ponse de {$request->user()->full_name}",
-                    'data' => json_encode(['message_uuid' => $reply->uuid]),
-                ]);
-            } catch (\Throwable $e) {
-                logger()->error('Agent notification reply failed', [
-                    'error' => $e->getMessage(),
-                    'message_uuid' => $reply->uuid,
-                ]);
-            }
+            $this->notifyReply($parentMessage, $reply, $request->user());
 
             return response()->json([
                 'success' => true,
-                'message' => 'RÇ¸ponse envoyÇ¸e',
+                'message' => 'Reponse envoyee',
                 'data' => $reply
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la rÇ¸ponse'
+                'message' => 'Message non trouve'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Agent message respond failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la reponse'
             ], 500);
         }
     }
@@ -272,9 +400,15 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message marquÇ¸ comme lu'
+                'message' => 'Message marque comme lu'
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
         } catch (\Exception $e) {
+            Log::error('Agent mark-read failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur'
@@ -283,25 +417,28 @@ class MessageController extends Controller
     }
 
     /**
-     * Messages pour propriÇ¸taire
+     * Messages pour proprietaire
      */
     public function ownerMessages(Request $request)
     {
         try {
-            $messages = Message::with(['sender', 'property'])
-                ->where('recipient_id', $request->user()->id)
-                ->orderBy('is_read', 'asc')
+            $query = Message::with(['sender', 'property'])
+                ->where('recipient_id', $request->user()->id);
+            $this->applyListFilters($query, $request);
+            $perPage = min((int) $request->get('per_page', 20), 100);
+            $messages = $query->orderBy('is_read', 'asc')
                 ->orderBy('created_at', 'desc')
-                ->paginate(20);
+                ->paginate($perPage);
 
             return response()->json([
                 'success' => true,
                 'data' => $messages
             ]);
         } catch (\Exception $e) {
+            Log::error('Owner messages list failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur'
+                'message' => 'Erreur lors de la recuperation'
             ], 500);
         }
     }
@@ -309,7 +446,7 @@ class MessageController extends Controller
     public function ownerShow(Request $request, $uuid)
     {
         try {
-            $message = Message::with(['sender', 'property', 'replies'])
+            $message = Message::with(['sender', 'property'])
                 ->where('uuid', $uuid)
                 ->where('recipient_id', $request->user()->id)
                 ->firstOrFail();
@@ -318,20 +455,27 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $message
+                'data' => $message,
+                'thread' => $message->threadMessages(),
             ]);
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Message non trouvÇ¸'
+                'message' => 'Message non trouve'
             ], 404);
+        } catch (\Exception $e) {
+            Log::error('Owner message show failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation du message'
+            ], 500);
         }
     }
 
     public function ownerReply(Request $request, $uuid)
     {
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string',
+            'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -347,25 +491,24 @@ class MessageController extends Controller
                 ->firstOrFail();
 
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-
-            Notification::create([
-                'user_id' => $parentMessage->sender_id,
-                'type' => 'message_reply',
-                'title' => 'Nouvelle rÇ¸ponse',
-                'message' => "Vous avez reÇõu une rÇ¸ponse de {$request->user()->full_name}",
-                'data' => json_encode(['message_uuid' => $reply->uuid]),
-            ]);
+            $this->notifyReply($parentMessage, $reply, $request->user());
 
             return response()->json([
                 'success' => true,
-                'message' => 'RÇ¸ponse envoyÇ¸e',
+                'message' => 'Reponse envoyee',
                 'data' => $reply
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la rÇ¸ponse'
+                'message' => 'Message non trouve'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Owner message reply failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la reponse'
             ], 500);
         }
     }
@@ -380,9 +523,15 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message marquÇ¸ comme lu'
+                'message' => 'Message marque comme lu'
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
         } catch (\Exception $e) {
+            Log::error('Owner mark-read failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur'
@@ -400,9 +549,15 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message supprimÇ¸'
+                'message' => 'Message supprime'
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
         } catch (\Exception $e) {
+            Log::error('Owner delete failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur'
@@ -416,18 +571,30 @@ class MessageController extends Controller
     public function adminIndex(Request $request)
     {
         try {
-            $messages = Message::with(['sender', 'recipient', 'property'])
-                ->orderBy('created_at', 'desc')
-                ->paginate(20);
+            $query = Message::with(['sender', 'recipient', 'property']);
+            $this->applyListFilters($query, $request);
+            $this->applyArchiveFilter($query, $request);
+            $perPage = min((int) $request->get('per_page', 20), 100);
+            $messages = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            $stats = [
+                'total' => Message::count(),
+                'unread' => Message::where('is_read', false)->count(),
+                'replied' => Message::whereNotNull('parent_message_id')->count(),
+                'conversations' => Message::whereNull('parent_message_id')->count(),
+                'archived' => Message::whereNull('parent_message_id')->whereNotNull('archived_at')->count(),
+            ];
 
             return response()->json([
                 'success' => true,
-                'data' => $messages
+                'data' => $messages,
+                'stats' => $stats,
             ]);
         } catch (\Exception $e) {
+            Log::error('Admin messages list failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur'
+                'message' => 'Erreur lors de la recuperation'
             ], 500);
         }
     }
@@ -435,19 +602,26 @@ class MessageController extends Controller
     public function adminShow($uuid)
     {
         try {
-            $message = Message::with(['sender', 'recipient', 'property', 'replies'])
+            $message = Message::with(['sender', 'recipient', 'property'])
                 ->where('uuid', $uuid)
                 ->firstOrFail();
 
             return response()->json([
                 'success' => true,
-                'data' => $message
+                'data' => $message,
+                'thread' => $message->threadMessages(),
             ]);
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Message non trouvÇ¸'
+                'message' => 'Message non trouve'
             ], 404);
+        } catch (\Exception $e) {
+            Log::error('Admin message show failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation du message'
+            ], 500);
         }
     }
 
@@ -456,8 +630,8 @@ class MessageController extends Controller
         $validator = Validator::make($request->all(), [
             'recipient_id' => 'required|exists:users,id',
             'property_id' => 'nullable|exists:properties,id',
-            'subject' => 'required|string|max:255',
-            'message' => 'required|string',
+            'subject' => 'nullable|string|max:' . self::SUBJECT_MAX_LENGTH,
+            'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -467,23 +641,51 @@ class MessageController extends Controller
             ], 422);
         }
 
+        if ((int) $request->recipient_id === $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous ne pouvez pas vous envoyer un message a vous-meme.'
+            ], 422);
+        }
+
         try {
+            $content = $this->sanitizeContent($request->message);
+            $subject = $request->filled('subject')
+                ? $this->sanitizeContent($request->subject)
+                : $this->deriveSubject($content);
+
             $message = Message::create([
                 'sender_id' => $request->user()->id,
                 'recipient_id' => $request->recipient_id,
                 'property_id' => $request->property_id,
-                'subject' => $request->subject,
-                'message' => $request->message,
+                'subject' => $subject,
+                'message' => $content,
             ]);
+
+            try {
+                Notification::create([
+                    'user_id' => $request->recipient_id,
+                    'type' => 'message_received',
+                    'title' => 'Nouveau message',
+                    'message' => "Vous avez recu un message de l'equipe {$request->user()->full_name}",
+                    'data' => json_encode(['message_uuid' => $message->uuid]),
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('Admin notification message_received failed', [
+                    'error' => $e->getMessage(),
+                    'message_uuid' => $message->uuid,
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
                 'data' => $message
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Admin message create failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la crÇ¸ation'
+                'message' => 'Erreur lors de la creation'
             ], 500);
         }
     }
@@ -491,8 +693,8 @@ class MessageController extends Controller
     public function adminUpdate(Request $request, $uuid)
     {
         $validator = Validator::make($request->all(), [
-            'subject' => 'sometimes|string|max:255',
-            'message' => 'sometimes|string',
+            'subject' => 'sometimes|string|max:' . self::SUBJECT_MAX_LENGTH,
+            'message' => 'sometimes|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -504,13 +706,23 @@ class MessageController extends Controller
 
         try {
             $message = Message::where('uuid', $uuid)->firstOrFail();
-            $message->update($request->only(['subject', 'message']));
+            $payload = $request->only(['subject', 'message']);
+            foreach ($payload as $key => $value) {
+                $payload[$key] = $this->sanitizeContent($value);
+            }
+            $message->update($payload);
 
             return response()->json([
                 'success' => true,
                 'data' => $message
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
         } catch (\Exception $e) {
+            Log::error('Admin message update failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur'
@@ -526,9 +738,15 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message supprimÇ¸'
+                'message' => 'Message supprime'
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
         } catch (\Exception $e) {
+            Log::error('Admin message delete failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur'
@@ -544,9 +762,15 @@ class MessageController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message marquÇ¸ comme lu'
+                'message' => 'Message marque comme lu'
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
         } catch (\Exception $e) {
+            Log::error('Admin mark-read failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur'
@@ -554,10 +778,64 @@ class MessageController extends Controller
         }
     }
 
+    /**
+     * Archive toute la conversation (racine + reponses) a laquelle appartient
+     * le message vise, en marquant uniquement le message racine.
+     */
+    public function adminArchive($uuid)
+    {
+        try {
+            $message = Message::where('uuid', $uuid)->firstOrFail();
+            $root = $message->threadRoot();
+            $root->update(['archived_at' => now()]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Conversation archivee'
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Admin message archive failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => "Erreur lors de l'archivage"
+            ], 500);
+        }
+    }
+
+    public function adminUnarchive($uuid)
+    {
+        try {
+            $message = Message::where('uuid', $uuid)->firstOrFail();
+            $root = $message->threadRoot();
+            $root->update(['archived_at' => null]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Conversation desarchivee'
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Message non trouve'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Admin message unarchive failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors du desarchivage'
+            ], 500);
+        }
+    }
+
     public function adminReply(Request $request, $uuid)
     {
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string',
+            'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
         if ($validator->fails()) {
@@ -570,24 +848,23 @@ class MessageController extends Controller
         try {
             $parentMessage = Message::where('uuid', $uuid)->firstOrFail();
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-
-            Notification::create([
-                'user_id' => $parentMessage->sender_id,
-                'type' => 'message_reply',
-                'title' => 'Nouvelle rÇ¸ponse',
-                'message' => "Vous avez reÇõu une rÇ¸ponse de {$request->user()->full_name}",
-                'data' => json_encode(['message_uuid' => $reply->uuid]),
-            ]);
+            $this->notifyReply($parentMessage, $reply, $request->user());
 
             return response()->json([
                 'success' => true,
-                'message' => 'RÇ¸ponse envoyÇ¸e',
+                'message' => 'Reponse envoyee',
                 'data' => $reply
             ], 201);
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la rÇ¸ponse'
+                'message' => 'Message non trouve'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Admin message reply failed', ['error' => $e->getMessage(), 'uuid' => $uuid]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la reponse'
             ], 500);
         }
     }

@@ -43,16 +43,39 @@ class HouseModelController extends Controller
         ]);
     }
 
-    public function adminIndex()
+    public function adminIndex(Request $request)
     {
-        $models = HouseModel::orderBy('display_order')
+        $query = HouseModel::query();
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('short_description', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('status')) {
+            $query->where('is_active', $request->status === 'active');
+        }
+
+        $perPage = min((int) $request->input('per_page', 12), 100) ?: 12;
+        $models = $query->orderBy('display_order')
             ->orderByDesc('updated_at')
-            ->get();
+            ->paginate($perPage)
+            ->through(fn (HouseModel $model) => $this->transform($model));
+
+        $stats = [
+            'total' => HouseModel::count(),
+            'active' => HouseModel::where('is_active', true)->count(),
+            'inactive' => HouseModel::where('is_active', false)->count(),
+        ];
 
         return response()->json([
             'success' => true,
             'section' => $this->getSectionContent(),
-            'data' => $models->map(fn (HouseModel $model) => $this->transform($model)),
+            'data' => $models,
+            'stats' => $stats,
         ]);
     }
 

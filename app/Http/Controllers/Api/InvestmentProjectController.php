@@ -42,12 +42,39 @@ class InvestmentProjectController extends Controller
     }
 
     // Admin/Gestionnaire - liste de tous les projets
-    public function staffIndex()
+    public function staffIndex(Request $request)
     {
-        $projects = InvestmentProject::orderBy('updated_at', 'desc')->paginate(20);
+        $query = InvestmentProject::query();
+
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('approval_status', $request->status);
+        }
+
+        if ($request->has('search') && $request->search !== '') {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('location', 'like', "%{$search}%")
+                    ->orWhere('city', 'like', "%{$search}%")
+                    ->orWhere('reference_code', 'like', "%{$search}%");
+            });
+        }
+
+        $perPage = min((int) $request->get('per_page', 12), 100);
+        $projects = $query->orderBy('updated_at', 'desc')->paginate($perPage);
+
+        $stats = [
+            'total' => InvestmentProject::count(),
+            'approved' => InvestmentProject::where('approval_status', 'approved')->count(),
+            'pending' => InvestmentProject::where('approval_status', 'pending')->count(),
+            'rejected' => InvestmentProject::where('approval_status', 'rejected')->count(),
+        ];
+
         return response()->json([
             'success' => true,
-            'data' => $projects
+            'data' => $projects,
+            'stats' => $stats,
         ]);
     }
 

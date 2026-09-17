@@ -229,9 +229,13 @@ class PartnerProductController extends Controller
         $products = PartnerProduct::with(['partnership.user'])
             ->pending()
             ->orderBy('created_at')
-            ->paginate(20);
+            ->paginate(20)
+            ->through(fn ($p) => $this->formatProductForReview($p));
 
-        return response()->json($products);
+        return response()->json([
+            'success' => true,
+            'data' => $products,
+        ]);
     }
 
     public function allProducts(Request $request)
@@ -245,7 +249,15 @@ class PartnerProductController extends Controller
             $query->whereHas('partnership', fn($q) => $q->where('uuid', $request->partnership_uuid));
         }
 
-        return response()->json($query->orderByDesc('created_at')->paginate(20));
+        $perPage = min((int) $request->input('per_page', 20), 100) ?: 20;
+        $products = $query->orderByDesc('created_at')
+            ->paginate($perPage)
+            ->through(fn ($p) => $this->formatProductForReview($p));
+
+        return response()->json([
+            'success' => true,
+            'data' => $products,
+        ]);
     }
 
     public function approve(string $uuid)
@@ -357,6 +369,19 @@ class PartnerProductController extends Controller
             'link'             => "/investment/{$p->uuid}",
             'created_at'       => $p->created_at->toISOString(),
         ];
+    }
+
+    // Comme formatProduct(), mais inclut aussi le partenariat (nom/type)
+    // necessaire a l'ecran de validation admin/gestionnaire.
+    private function formatProductForReview(PartnerProduct $product): array
+    {
+        return array_merge($this->formatProduct($product), [
+            'partnership' => $product->partnership ? [
+                'uuid'         => $product->partnership->uuid,
+                'company_name' => $product->partnership->company_name,
+                'company_type' => $product->partnership->company_type,
+            ] : null,
+        ]);
     }
 
     private function formatProduct(PartnerProduct $product): array

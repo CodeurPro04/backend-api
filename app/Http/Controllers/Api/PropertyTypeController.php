@@ -7,6 +7,7 @@ use App\Models\PropertyType;
 use App\Models\PropertyFeature;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class PropertyTypeController extends Controller
 {
@@ -42,8 +43,16 @@ class PropertyTypeController extends Controller
         }
 
         try {
+            $slug = Str::slug($request->name);
+            $originalSlug = $slug;
+            $suffix = 1;
+            while (PropertyType::where('slug', $slug)->exists()) {
+                $slug = $originalSlug . '-' . $suffix++;
+            }
+
             $type = PropertyType::create([
                 'name' => $request->name,
+                'slug' => $slug,
                 'is_active' => true,
             ]);
 
@@ -131,6 +140,7 @@ class PropertyTypeController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255|unique:property_features,name',
+            'category' => 'required|in:confort,securite,equipements',
         ]);
 
         if ($validator->fails()) {
@@ -143,6 +153,7 @@ class PropertyTypeController extends Controller
         try {
             $feature = PropertyFeature::create([
                 'name' => $request->name,
+                'category' => $request->category,
             ]);
 
             return response()->json([
@@ -162,6 +173,7 @@ class PropertyTypeController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255|unique:property_features,name,' . $id,
+            'category' => 'sometimes|in:confort,securite,equipements',
         ]);
 
         if ($validator->fails()) {
@@ -173,7 +185,7 @@ class PropertyTypeController extends Controller
 
         try {
             $feature = PropertyFeature::findOrFail($id);
-            $feature->update(['name' => $request->name]);
+            $feature->update($request->only(['name', 'category']));
 
             return response()->json([
                 'success' => true,

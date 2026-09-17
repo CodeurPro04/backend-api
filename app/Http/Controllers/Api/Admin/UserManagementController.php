@@ -19,12 +19,48 @@ class UserManagementController extends Controller
         return $user;
     }
 
-    public function index()
+    public function index(Request $request)
     {
-        $users = User::with(['role', 'latestPartnership', 'country'])->paginate(20);
+        $query = User::with(['role', 'latestPartnership', 'country']);
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('role')) {
+            $query->whereHas('role', fn ($q) => $q->where('slug', $request->input('role')));
+        }
+
+        if ($request->filled('status')) {
+            $query->where('is_active', $request->input('status') === 'active');
+        }
+
+        $perPage = min((int) $request->input('per_page', 20), 200) ?: 20;
+        $users = $query->orderByDesc('created_at')->paginate($perPage);
         $users->setCollection($users->getCollection()->map(fn (User $user) => $this->appendPartnerType($user)));
 
-        return response()->json($users);
+        $stats = [
+            'total' => User::count(),
+            'active' => User::where('is_active', true)->count(),
+            'pending' => User::where('is_active', false)->count(),
+            'agents' => User::whereHas('role', fn ($q) => $q->where('slug', 'agent'))->count(),
+            'by_role' => Role::withCount('users')
+                ->orderByDesc('users_count')
+                ->get()
+                ->map(fn ($role) => ['label' => $role->name, 'value' => $role->users_count])
+                ->values(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $users,
+            'stats' => $stats,
+        ]);
     }
 
     public function store(Request $request)

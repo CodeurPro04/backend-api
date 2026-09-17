@@ -266,10 +266,14 @@ class ClientRequestController extends Controller
         }
     }
 
-    public function pending()
+    // UTILISATEUR CONNECTE - ses propres demandes (tous roles : investisseur, visiteur, proprietaire...)
+    public function myRequests(Request $request)
     {
         $requests = ClientRequest::with($this->baseRelations())
-            ->whereIn('status', ['pending', 'approved', 'agent_rejected'])
+            ->where('user_id', $request->user()->id)
+            ->when($request->filled('request_type'), function ($query) use ($request) {
+                $query->where('request_type', $request->input('request_type'));
+            })
             ->orderBy('created_at', 'desc')
             ->paginate(15);
 
@@ -279,12 +283,27 @@ class ClientRequestController extends Controller
         ]);
     }
 
-    public function history()
+    public function pending(Request $request)
     {
+        $perPage = min((int) $request->get('per_page', 15), 100);
+        $requests = ClientRequest::with($this->baseRelations())
+            ->whereIn('status', ['pending', 'approved', 'agent_rejected'])
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => $requests
+        ]);
+    }
+
+    public function history(Request $request)
+    {
+        $perPage = min((int) $request->get('per_page', 15), 100);
         $requests = ClientRequest::with($this->baseRelations())
             ->whereNotIn('status', ['pending', 'approved', 'agent_rejected'])
             ->orderBy('updated_at', 'desc')
-            ->paginate(15);
+            ->paginate($perPage);
 
         return response()->json([
             'success' => true,
@@ -356,10 +375,10 @@ class ClientRequestController extends Controller
             default => 'immobilier',
         };
 
-        if ($agent->agent_type && $agent->agent_type !== $requiredType) {
+        if ($agent->agent_type !== $requiredType) {
             return response()->json([
                 'success' => false,
-                'message' => "Cet agent est de type {$agent->agent_type}. Type requis: {$requiredType}.",
+                'message' => "Cet agent doit être de type {$requiredType} pour recevoir ce dossier.",
             ], 422);
         }
 

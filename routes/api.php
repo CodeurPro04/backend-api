@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Manager\ReportController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\SystemStatusController;
 
 /*
 |--------------------------------------------------------------------------
@@ -121,6 +122,10 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::post('/{uuid}/propose', [InvestmentProjectController::class, 'propose']);
     });
 
+    // Demandes clients de l'utilisateur connecte (tous roles) — ex: formulaire "etre recontacte"
+    // rempli en etant connecte (investisseur, proprietaire...)
+    Route::get('/client-requests/mine', [ClientRequestController::class, 'myRequests']);
+
     // Routes PROPRIÉTAIRE
     Route::middleware('checkrole:proprietaire')->prefix('proprietaire')->group(function () {
         Route::prefix('properties')->group(function () {
@@ -141,7 +146,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'ownerMessages']);
             Route::get('/{uuid}', [MessageController::class, 'ownerShow']);
-            Route::post('/{uuid}/reply', [MessageController::class, 'ownerReply']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'ownerReply'])->middleware('throttle:20,1');
             Route::post('/{uuid}/mark-read', [MessageController::class, 'ownerMarkRead']);
             Route::delete('/{uuid}', [MessageController::class, 'ownerDelete']);
         });
@@ -152,9 +157,9 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         // Messages
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'index']);
-            Route::post('/', [MessageController::class, 'send']);
+            Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
             Route::get('/{uuid}', [MessageController::class, 'show']);
-            Route::post('/{uuid}/reply', [MessageController::class, 'reply']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'reply'])->middleware('throttle:20,1');
         });
 
         Route::prefix('client-requests')->group(function () {
@@ -225,8 +230,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         // Messages clients
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'agentMessages']);
-            Route::post('/', [MessageController::class, 'send']);
-            Route::post('/{uuid}/respond', [MessageController::class, 'respond']);
+            Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
+            Route::post('/{uuid}/respond', [MessageController::class, 'respond'])->middleware('throttle:20,1');
             Route::post('/{uuid}/mark-read', [MessageController::class, 'agentMarkRead']);
         });
 
@@ -280,7 +285,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/all', [PropertyController::class, 'managerIndex']);
             Route::get('/pending', [PropertyController::class, 'pending']);
             Route::post('/', [PropertyController::class, 'store']);
-            Route::put('/{uuid}', [PropertyController::class, 'update']);
+            Route::put('/{uuid}', [PropertyController::class, 'adminUpdate']);
             Route::post('/{uuid}/assign', [PropertyController::class, 'assign']);
             Route::post('/{uuid}/status', [PropertyController::class, 'staffUpdateStatus']);
         });
@@ -296,6 +301,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 
         // Gestion des projets de construction
         Route::prefix('construction')->group(function () {
+            Route::get('/', [ConstructionProjectController::class, 'staffIndex']);
+            Route::get('/all', [ConstructionProjectController::class, 'staffIndex']);
             Route::get('/pending', [ConstructionProjectController::class, 'pending']);
             Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
             Route::post('/spotlight', [ConstructionProjectController::class, 'updateSpotlightContent']);
@@ -355,6 +362,9 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
         Route::get('/statistics', [DashboardController::class, 'statistics']);
 
+        // Etat systeme (sidebar)
+        Route::get('/system/status', [SystemStatusController::class, 'index']);
+
         // Gestion des utilisateurs
         Route::prefix('users')->group(function () {
             Route::get('/', [UserManagementController::class, 'index']);
@@ -390,11 +400,13 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'adminIndex']);
             Route::get('/{uuid}', [MessageController::class, 'adminShow']);
-            Route::post('/', [MessageController::class, 'adminCreate']);
+            Route::post('/', [MessageController::class, 'adminCreate'])->middleware('throttle:20,1');
             Route::put('/{uuid}', [MessageController::class, 'adminUpdate']);
             Route::delete('/{uuid}', [MessageController::class, 'adminDestroy']);
             Route::post('/{uuid}/mark-read', [MessageController::class, 'adminMarkRead']);
-            Route::post('/{uuid}/reply', [MessageController::class, 'adminReply']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'adminReply'])->middleware('throttle:20,1');
+            Route::post('/{uuid}/archive', [MessageController::class, 'adminArchive']);
+            Route::post('/{uuid}/unarchive', [MessageController::class, 'adminUnarchive']);
         });
 
         // Projets d'investissement
@@ -467,6 +479,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         });
 
         Route::prefix('construction')->group(function () {
+            Route::get('/', [ConstructionProjectController::class, 'staffIndex']);
+            Route::get('/all', [ConstructionProjectController::class, 'staffIndex']);
             Route::get('/pending', [ConstructionProjectController::class, 'pending']);
             Route::get('/history', [ConstructionProjectController::class, 'managerHistory']);
             Route::post('/spotlight', [ConstructionProjectController::class, 'updateSpotlightContent']);

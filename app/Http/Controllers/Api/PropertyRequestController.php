@@ -139,7 +139,7 @@ class PropertyRequestController extends Controller
 
         $propertyRequest = PropertyRequest::where('uuid', $uuid)->firstOrFail();
         $agent = User::findOrFail($request->agent_id);
-        if ($agent->agent_type && $agent->agent_type !== 'immobilier') {
+        if ($agent->agent_type !== 'immobilier') {
             return response()->json([
                 'success' => false,
                 'message' => 'Seuls les agents immobiliers peuvent etre assignes.',

@@ -45,6 +45,45 @@ class ConstructionProjectController extends Controller
         ]);
     }
 
+    // ADMIN/GESTIONNAIRE - Liste complete du catalogue de projets (tous statuts)
+    public function staffIndex(Request $request)
+    {
+        $query = ConstructionProject::with(['agent'])
+            ->where('is_publication', true);
+
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('search') && $request->search !== '') {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('location', 'like', "%{$search}%")
+                    ->orWhere('city', 'like', "%{$search}%");
+            });
+        }
+
+        $query->orderBy('created_at', 'desc');
+
+        $perPage = min((int) $request->get('per_page', 12), 100);
+        $projects = $query->paginate($perPage);
+
+        $stats = [
+            'total' => ConstructionProject::where('is_publication', true)->count(),
+            'published' => ConstructionProject::where('is_publication', true)->where('status', 'published')->count(),
+            'pending' => ConstructionProject::where('is_publication', true)->where('status', 'submitted')->count(),
+            'rejected' => ConstructionProject::where('is_publication', true)->where('status', 'rejected')->count(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $projects,
+            'stats' => $stats,
+        ]);
+    }
+
     public function updateSpotlightContent(Request $request)
     {
         $validated = $request->validate([
@@ -234,7 +273,7 @@ class ConstructionProjectController extends Controller
 
         $project = ConstructionProject::where('uuid', $uuid)->firstOrFail();
         $agent = User::findOrFail($request->agent_id);
-        if ($agent->agent_type && $agent->agent_type !== 'constructeur') {
+        if ($agent->agent_type !== 'constructeur') {
             return response()->json([
                 'success' => false,
                 'message' => 'Seuls les agents constructeurs peuvent etre assignes.',
