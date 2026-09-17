@@ -1,0 +1,35 @@
+name: Deploy backend API
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /home/africabuildinvest-api/htdocs/api.africabuildinvest.com
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            composer install --no-dev --optimize-autoloader --no-interaction
+
+            php artisan migrate --force
+            php artisan config:cache
+            php artisan route:cache
+
+            supervisorctl restart laravel-worker || true
+            systemctl reload 'php*-fpm' 2>/dev/null || true
+
+            echo "Backend deploye avec succes."
