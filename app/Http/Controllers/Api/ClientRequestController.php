@@ -507,6 +507,10 @@ class ClientRequestController extends Controller
             'approved_at' => $requestItem->approved_at ?: now(),
         ]);
 
+        if ($requestItem->request_type === 'investissement' && $requestItem->investment_project_id) {
+            $this->applyConcludedInvestmentFunding($requestItem->investment_project_id, $request->sale_price);
+        }
+
         $this->notifyStaff(
             $requestItem,
             'Offre client conclue',
@@ -522,6 +526,36 @@ class ClientRequestController extends Controller
                 'request' => $requestItem->fresh($this->baseRelations()),
             ],
         ], 201);
+    }
+
+    // Ajoute automatiquement le montant d'un deal investissement conclu au financement du projet
+    private function applyConcludedInvestmentFunding($investmentProjectId, $salePriceRaw): void
+    {
+        $normalized = preg_replace('/[^\d,.\-]/', '', (string) $salePriceRaw);
+        $normalized = str_replace(',', '.', $normalized);
+        $amount = is_numeric($normalized) ? (float) $normalized : 0;
+
+        if ($amount <= 0) {
+            return;
+        }
+
+        DB::transaction(function () use ($investmentProjectId, $amount) {
+            $project = InvestmentProject::where('id', $investmentProjectId)->lockForUpdate()->first();
+
+            if (!$project) {
+                return;
+            }
+
+            $project->current_funding = (float) $project->current_funding + $amount;
+            $project->investors_count = (int) $project->investors_count + 1;
+
+            if ($project->total_investment && $project->current_funding >= (float) $project->total_investment
+                && !in_array($project->status, ['closed', 'completed'], true)) {
+                $project->status = 'completed';
+            }
+
+            $project->save();
+        });
     }
 
     // AGENT - rejeter une demande client assignee
