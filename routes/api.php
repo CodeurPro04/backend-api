@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\PartnershipController;
 use App\Http\Controllers\Api\PropertyRequestController;
 use App\Http\Controllers\Api\ClientRequestController;
 use App\Http\Controllers\Api\HouseModelController;
+use App\Http\Controllers\Api\PresentationVideoController;
 use App\Http\Controllers\Api\CountryController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Manager\ReportController;
@@ -78,6 +79,8 @@ Route::prefix('v1')->group(function () {
     // Modeles de maison (public)
     Route::get('house-models', [HouseModelController::class, 'index']);
     Route::get('house-models/{identifier}', [HouseModelController::class, 'show']);
+    // Section "Videos de presentation" page d'accueil (public)
+    Route::get('presentation-video', [PresentationVideoController::class, 'show']);
 
     // Agents (public - page accueil)
     Route::get('agents/public', [UserManagementController::class, 'publicAgents']);
@@ -288,6 +291,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::put('/{uuid}', [PropertyController::class, 'adminUpdate']);
             Route::post('/{uuid}/assign', [PropertyController::class, 'assign']);
             Route::post('/{uuid}/status', [PropertyController::class, 'staffUpdateStatus']);
+            Route::delete('/media/{id}', [PropertyController::class, 'deleteMedia']);
         });
 
         // Gestion des demandes de recherche
@@ -393,6 +397,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::delete('/{uuid}', [PropertyController::class, 'forceDelete']);
             Route::post('/{uuid}/toggle-featured', [PropertyController::class, 'toggleFeatured']);
             Route::post('/{uuid}/status', [PropertyController::class, 'staffUpdateStatus']);
+            Route::delete('/media/{id}', [PropertyController::class, 'deleteMedia']);
         });
 
 
@@ -515,6 +520,12 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/', [HouseModelController::class, 'store']);
             Route::put('/{uuid}', [HouseModelController::class, 'update']);
             Route::delete('/{uuid}', [HouseModelController::class, 'destroy']);
+        });
+
+        // Section "Videos de presentation" page d'accueil (admin)
+        Route::prefix('presentation-video')->group(function () {
+            Route::get('/', [PresentationVideoController::class, 'show']);
+            Route::post('/', [PresentationVideoController::class, 'update']);
         });
     });
 });

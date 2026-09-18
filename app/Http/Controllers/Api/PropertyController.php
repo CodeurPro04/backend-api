@@ -88,19 +88,34 @@ class PropertyController extends Controller
      */
     public function adminUpdate(Request $request, $uuid)
     {
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), array_merge([
             'title' => 'sometimes|string|max:255',
             'description' => 'sometimes|string',
             'property_type_id' => 'sometimes|exists:property_types,id',
             'transaction_type' => 'sometimes|in:vente,location',
             'price' => 'sometimes|numeric|min:0',
+            'currency' => 'nullable|string|max:10',
+            'negotiable' => 'nullable|boolean',
             'surface_area' => 'nullable|numeric|min:0',
+            'land_area' => 'nullable|numeric|min:0',
             'bedrooms' => 'nullable|integer|min:0',
             'bathrooms' => 'nullable|integer|min:0',
+            'parking_spaces' => 'nullable|integer|min:0',
+            'floor_number' => 'nullable|integer',
+            'total_floors' => 'nullable|integer',
+            'year_built' => 'nullable|integer|min:1800|max:' . date('Y'),
             'address' => 'sometimes|string',
             'city' => 'sometimes|string|max:100',
+            'commune' => 'nullable|string|max:100',
+            'quartier' => 'nullable|string|max:100',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+            'features' => 'nullable|array',
+            'features.*' => 'exists:property_features,id',
+            'country_id' => 'nullable|exists:countries,id',
+            'country_code' => 'nullable|exists:countries,code',
             'status' => 'sometimes|string',
-        ]);
+        ], $this->propertyMediaRules(false)));
 
         if ($validator->fails()) {
             return response()->json([
@@ -111,13 +126,25 @@ class PropertyController extends Controller
 
         try {
             $property = Property::where('uuid', $uuid)->firstOrFail();
-            $payload = $request->all();
+            $payload = $validator->validated();
+            unset(
+                $payload['features'],
+                $payload['images'],
+                $payload['plan_images'],
+                $payload['render_3d_images'],
+                $payload['country_code']
+            );
+
+            if ($request->has('country_id') || $request->has('country_code')) {
+                $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+            }
+
             if (!array_key_exists('status', $payload)) {
                 $payload['status'] = 'approved';
                 $payload['rejection_reason'] = null;
                 $payload['validated_at'] = now();
                 $payload['validated_by'] = $request->user()->id;
-                $payload['published_at'] = now();
+                $payload['published_at'] = $property->published_at ?: now();
             }
             $property->update($payload);
 
@@ -125,10 +152,12 @@ class PropertyController extends Controller
                 $property->features()->sync($request->features);
             }
 
+            $this->attachPropertyVisuals($request, $property);
+
             return response()->json([
                 'success' => true,
                 'message' => 'PropriÃ‡Â¸tÃ‡Â¸ mise Ã‡Ã¿ jour',
-                'data' => $property->load(['propertyType', 'media', 'features', 'user', 'agent'])
+                'data' => $property->fresh()->load(['propertyType', 'media', 'features', 'user', 'agent', 'country'])
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -1109,15 +1138,19 @@ class PropertyController extends Controller
     }
 
     /**
-     * Supprimer un mÃ‡Â¸dia (propriÃ‡Â¸taire)
+     * Supprimer un mÃ‡Â¸dia (propriÃ‡Â¸taire, ou admin/gestionnaire)
      */
     public function deleteMedia(Request $request, $id)
     {
         try {
             $media = PropertyMedia::where('id', $id)->firstOrFail();
-            $property = Property::where('id', $media->property_id)
-                ->where('user_id', $request->user()->id)
-                ->firstOrFail();
+            $isStaff = in_array($request->user()?->role?->slug, ['admin', 'gestionnaire'], true);
+
+            $propertyQuery = Property::where('id', $media->property_id);
+            if (!$isStaff) {
+                $propertyQuery->where('user_id', $request->user()->id);
+            }
+            $property = $propertyQuery->firstOrFail();
 
             Storage::disk('public')->delete($media->file_path);
             $media->delete();
