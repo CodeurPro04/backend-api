@@ -231,6 +231,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::post('/from-request/{uuid}', [PropertyController::class, 'agentStoreFromRequest']);
             Route::get('/all', [PropertyController::class, 'agentIndex']);
             Route::put('/{uuid}', [PropertyController::class, 'agentUpdate']);
+            Route::delete('/media/{id}', [PropertyController::class, 'deleteMedia']);
         });
 
         // Messages clients

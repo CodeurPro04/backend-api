@@ -1004,7 +1004,7 @@ class PropertyController extends Controller
      */
     public function agentUpdate(Request $request, $uuid)
     {
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), array_merge([
             'title' => 'sometimes|string|max:255',
             'description' => 'sometimes|string',
             'agent_comment' => 'nullable|string',
@@ -1025,7 +1025,12 @@ class PropertyController extends Controller
             'city' => 'sometimes|string|max:100',
             'commune' => 'nullable|string|max:100',
             'quartier' => 'nullable|string|max:100',
-        ]);
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+            'country_id' => 'nullable|exists:countries,id',
+            'features' => 'nullable|array',
+            'features.*' => 'exists:property_features,id',
+        ], $this->propertyMediaRules(false)));
 
         if ($validator->fails()) {
             return response()->json([
@@ -1060,7 +1065,13 @@ class PropertyController extends Controller
                 'city',
                 'commune',
                 'quartier',
+                'latitude',
+                'longitude',
             ]);
+
+            if ($request->has('country_id') || $request->has('country_code')) {
+                $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
+            }
 
             // Toute modification par l'agent repasse en attente de validation staff.
             $payload['status'] = 'pending';
@@ -1074,6 +1085,8 @@ class PropertyController extends Controller
             if ($request->has('features')) {
                 $property->features()->sync($request->features);
             }
+
+            $this->attachPropertyVisuals($request, $property);
 
             return response()->json([
                 'success' => true,
@@ -1157,9 +1170,12 @@ class PropertyController extends Controller
         try {
             $media = PropertyMedia::where('id', $id)->firstOrFail();
             $isStaff = in_array($request->user()?->role?->slug, ['admin', 'gestionnaire'], true);
+            $isAgent = $request->user()?->role?->slug === 'agent';
 
             $propertyQuery = Property::where('id', $media->property_id);
-            if (!$isStaff) {
+            if ($isAgent) {
+                $propertyQuery->where('agent_id', $request->user()->id);
+            } elseif (!$isStaff) {
                 $propertyQuery->where('user_id', $request->user()->id);
             }
             $property = $propertyQuery->firstOrFail();
