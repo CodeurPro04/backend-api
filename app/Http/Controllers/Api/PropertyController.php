@@ -210,7 +210,13 @@ class PropertyController extends Controller
                 $query->where(function ($q) use ($search) {
                     $q->where('title', 'like', "%{$search}%")
                         ->orWhere('description', 'like', "%{$search}%")
-                        ->orWhere('address', 'like', "%{$search}%");
+                        ->orWhere('address', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('quartier', 'like', "%{$search}%")
+                        ->orWhere('commune', 'like', "%{$search}%")
+                        ->orWhereHas('propertyType', function ($typeQuery) use ($search) {
+                            $typeQuery->where('name', 'like', "%{$search}%");
+                        });
                 });
             }
 
@@ -290,7 +296,13 @@ class PropertyController extends Controller
                 $query->where(function ($q) use ($search) {
                     $q->where('title', 'like', "%{$search}%")
                         ->orWhere('description', 'like', "%{$search}%")
-                        ->orWhere('address', 'like', "%{$search}%");
+                        ->orWhere('address', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('quartier', 'like', "%{$search}%")
+                        ->orWhere('commune', 'like', "%{$search}%")
+                        ->orWhereHas('propertyType', function ($typeQuery) use ($search) {
+                            $typeQuery->where('name', 'like', "%{$search}%");
+                        });
                 });
             }
 
