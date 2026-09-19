@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PropertyRequestController;
 use App\Http\Controllers\Api\ClientRequestController;
 use App\Http\Controllers\Api\HouseModelController;
 use App\Http\Controllers\Api\PresentationVideoController;
+use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\CountryController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Manager\ReportController;
@@ -81,6 +82,8 @@ Route::prefix('v1')->group(function () {
     Route::get('house-models/{identifier}', [HouseModelController::class, 'show']);
     // Section "Videos de presentation" page d'accueil (public)
     Route::get('presentation-video', [PresentationVideoController::class, 'show']);
+    // Carte interactive - pins de tous les biens (public)
+    Route::get('map-pins', [MapController::class, 'pins']);
 
     // Agents (public - page accueil)
     Route::get('agents/public', [UserManagementController::class, 'publicAgents']);
