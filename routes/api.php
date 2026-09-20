@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PropertyRequestController;
 use App\Http\Controllers\Api\ClientRequestController;
 use App\Http\Controllers\Api\HouseModelController;
 use App\Http\Controllers\Api\PresentationVideoController;
+use App\Http\Controllers\Api\NavMenuAdController;
 use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\CountryController;
 use App\Http\Controllers\Api\Admin\DashboardController;
@@ -39,10 +40,10 @@ Route::prefix('v1')->group(function () {
 
     // Authentification
     Route::prefix('auth')->group(function () {
-        Route::post('/register', [AuthController::class, 'register']);
-        Route::post('/login', [AuthController::class, 'login']);
-        Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+        Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:register');
+        Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+        Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:password-reset');
+        Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:password-reset');
         Route::post('/change-password', [AuthController::class, 'changePassword']);
     });
 
@@ -72,16 +73,19 @@ Route::prefix('v1')->group(function () {
     Route::get('construction-projects', [ConstructionProjectController::class, 'publicIndex']);
     Route::get('construction-projects/{uuid}', [ConstructionProjectController::class, 'publicShow']);
     // Demandes clients (public)
-    Route::post('client-requests', [ClientRequestController::class, 'store']);
+    Route::post('client-requests', [ClientRequestController::class, 'store'])->middleware('throttle:public-write');
     // Partenaires (public)
-    Route::post('partnerships/apply', [PartnershipController::class, 'publicApply']);
+    Route::post('partnerships/apply', [PartnershipController::class, 'publicApply'])->middleware('throttle:public-write');
     Route::get('partnerships/approved', [PartnershipController::class, 'publicApproved']);
+    Route::get('partnerships/lookup', [PartnershipController::class, 'lookup']);
     Route::get('partnerships/{uuid}', [PartnershipController::class, 'publicShow']);
     // Modeles de maison (public)
     Route::get('house-models', [HouseModelController::class, 'index']);
     Route::get('house-models/{identifier}', [HouseModelController::class, 'show']);
     // Section "Videos de presentation" page d'accueil (public)
     Route::get('presentation-video', [PresentationVideoController::class, 'show']);
+    // Emplacements publicitaires des menus de la navbar (public)
+    Route::get('nav-ads', [NavMenuAdController::class, 'index']);
     // Carte interactive - pins de tous les biens (public)
     Route::get('map-pins', [MapController::class, 'pins']);
 
@@ -89,7 +93,7 @@ Route::prefix('v1')->group(function () {
     Route::get('agents/public', [UserManagementController::class, 'publicAgents']);
 
     // IA Chat — Akapko Manawa / Djuêdjuê / Koffi Gombo
-    Route::post('ai/chat', [AIChatController::class, 'chat']);
+    Route::post('ai/chat', [AIChatController::class, 'chat'])->middleware('throttle:ai-chat');
 
     // Produits / projets partenaires (public — approuvés uniquement)
     Route::get('partnerships/{uuid}/products',      [PartnerProductController::class, 'publicList']);
@@ -132,6 +136,21 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // rempli en etant connecte (investisseur, proprietaire...)
     Route::get('/client-requests/mine', [ClientRequestController::class, 'myRequests']);
 
+    // Agents disponibles pour demarrer une conversation (tous roles connectes,
+    // utilise par le site public : un visiteur/proprietaire/investisseur ne peut
+    // ecrire qu'a un agent).
+    Route::get('/messages/agents', [MessageController::class, 'messageableAgents']);
+
+    // Annuaire complet (tous roles) pour demarrer une conversation depuis le
+    // backoffice : un agent/gestionnaire/admin/partenaire peut y chercher
+    // n'importe quel autre utilisateur (agent, admin, gestionnaire, partenaire,
+    // visiteur, proprietaire, investisseur...).
+    // Reserve au backoffice (agent/gestionnaire/admin/partenaire) : un visiteur,
+    // proprietaire ou investisseur ne doit pas pouvoir lister tous les comptes,
+    // seulement les agents via /messages/agents ci-dessus.
+    Route::middleware('checkrole:agent,gestionnaire,admin,entreprise')
+        ->get('/messages/users', [MessageController::class, 'messageableUsers']);
+
     // Routes PROPRIÉTAIRE
     Route::middleware('checkrole:proprietaire')->prefix('proprietaire')->group(function () {
         Route::prefix('properties')->group(function () {
@@ -151,6 +170,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'ownerMessages']);
+            Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
             Route::get('/{uuid}', [MessageController::class, 'ownerShow']);
             Route::post('/{uuid}/reply', [MessageController::class, 'ownerReply'])->middleware('throttle:20,1');
             Route::post('/{uuid}/mark-read', [MessageController::class, 'ownerMarkRead']);
@@ -192,6 +212,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/my-proposals', [InvestmentProjectController::class, 'myProposals']);
             Route::get('/proposals/{uuid}', [InvestmentProjectController::class, 'proposalDetails']);
         });
+
+        // Messages (conversations avec les agents)
+        Route::prefix('messages')->group(function () {
+            Route::get('/', [MessageController::class, 'index']);
+            Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
+            Route::get('/{uuid}', [MessageController::class, 'show']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'reply'])->middleware('throttle:20,1');
+        });
     });
 
     // (route déplacée dans le prefix /investments ci-dessus)
@@ -219,6 +247,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::post('/investments', [InvestmentProjectController::class, 'agentCreate']);
         Route::put('/investments/{uuid}', [InvestmentProjectController::class, 'agentUpdate']);
         Route::delete('/investments/{uuid}', [InvestmentProjectController::class, 'destroy']);
+
+        // Messages (conversations avec les agents, l'administration, etc.)
+        Route::prefix('messages')->group(function () {
+            Route::get('/', [MessageController::class, 'index']);
+            Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
+            Route::get('/{uuid}', [MessageController::class, 'show']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'reply'])->middleware('throttle:20,1');
+        });
     });
 
     // Routes AGENT IMMOBILIER
@@ -238,6 +274,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('messages')->group(function () {
             Route::get('/', [MessageController::class, 'agentMessages']);
             Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
+            Route::get('/{uuid}', [MessageController::class, 'show']);
             Route::post('/{uuid}/respond', [MessageController::class, 'respond'])->middleware('throttle:20,1');
             Route::post('/{uuid}/mark-read', [MessageController::class, 'agentMarkRead']);
         });
@@ -282,6 +319,10 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::get('/publications', [InvestmentProjectController::class, 'agentPublications']);
             Route::post('/publications', [InvestmentProjectController::class, 'agentCreate']);
             Route::put('/publications/{uuid}', [InvestmentProjectController::class, 'agentUpdate']);
+            // Propositions d'investissement a traiter (reserve aux agents investissement)
+            Route::get('/proposals', [InvestmentProjectController::class, 'agentProposals']);
+            Route::post('/proposals/{uuid}/approve', [InvestmentProjectController::class, 'agentApproveProposal']);
+            Route::post('/proposals/{uuid}/reject', [InvestmentProjectController::class, 'agentRejectProposal']);
         });
     });
 
@@ -360,6 +401,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
             Route::delete('/{uuid}', [InvestmentProjectController::class, 'destroy']);
             Route::post('/{uuid}/approve', [InvestmentProjectController::class, 'approveProject']);
             Route::post('/{uuid}/reject', [InvestmentProjectController::class, 'rejectProject']);
+        });
+
+        // Messages (conversations avec les agents, les autres membres du staff, etc.)
+        Route::prefix('messages')->group(function () {
+            Route::get('/', [MessageController::class, 'index']);
+            Route::post('/', [MessageController::class, 'send'])->middleware('throttle:20,1');
+            Route::get('/{uuid}', [MessageController::class, 'show']);
+            Route::post('/{uuid}/reply', [MessageController::class, 'reply'])->middleware('throttle:20,1');
         });
     });
 
@@ -530,6 +579,12 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::prefix('presentation-video')->group(function () {
             Route::get('/', [PresentationVideoController::class, 'show']);
             Route::post('/', [PresentationVideoController::class, 'update']);
+        });
+
+        // Emplacements publicitaires des menus de la navbar (admin)
+        Route::prefix('nav-ads')->group(function () {
+            Route::get('/', [NavMenuAdController::class, 'adminIndex']);
+            Route::post('/', [NavMenuAdController::class, 'update']);
         });
     });
 });

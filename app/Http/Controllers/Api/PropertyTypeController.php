@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PropertyType;
 use App\Models\PropertyFeature;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -21,10 +22,10 @@ class PropertyTypeController extends Controller
                 'data' => $types
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la recuperation des types de proprietes', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la recuperation des types de proprietes',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la recuperation des types de proprietes'
             ], 500);
         }
     }
@@ -61,10 +62,10 @@ class PropertyTypeController extends Controller
                 'data' => $type
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la creation du type', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la creation du type',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la creation du type'
             ], 500);
         }
     }
@@ -91,10 +92,10 @@ class PropertyTypeController extends Controller
                 'data' => $type
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la mise a jour du type', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la mise a jour du type',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la mise a jour du type'
             ], 500);
         }
     }
@@ -110,10 +111,10 @@ class PropertyTypeController extends Controller
                 'message' => 'Type supprime'
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la suppression du type', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la suppression du type',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la suppression du type'
             ], 500);
         }
     }
@@ -128,10 +129,10 @@ class PropertyTypeController extends Controller
                 'data' => $features
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la recuperation des caracteristiques', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la recuperation des caracteristiques',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la recuperation des caracteristiques'
             ], 500);
         }
     }
@@ -161,10 +162,10 @@ class PropertyTypeController extends Controller
                 'data' => $feature
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la creation de la caracteristique', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la creation de la caracteristique',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la creation de la caracteristique'
             ], 500);
         }
     }
@@ -192,10 +193,10 @@ class PropertyTypeController extends Controller
                 'data' => $feature
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la mise a jour de la caracteristique', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la mise a jour de la caracteristique',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la mise a jour de la caracteristique'
             ], 500);
         }
     }
@@ -211,10 +212,10 @@ class PropertyTypeController extends Controller
                 'message' => 'Caracteristique supprimee'
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la suppression de la caracteristique', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la suppression de la caracteristique',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la suppression de la caracteristique'
             ], 500);
         }
     }

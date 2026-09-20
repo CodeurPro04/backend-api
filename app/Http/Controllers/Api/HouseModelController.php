@@ -84,6 +84,7 @@ class HouseModelController extends Controller
         $validated = $request->validate([
             'section_title' => 'required|string|max:255',
             'section_description' => 'required|string|max:2000',
+            'enabled' => 'nullable|boolean',
             'video_urls' => 'nullable|array',
             'video_urls.*' => 'nullable|string|max:2000',
             'showcase_sections' => 'nullable|array|size:3',
@@ -99,6 +100,11 @@ class HouseModelController extends Controller
 
         Setting::set('house_models_section_title', $validated['section_title']);
         Setting::set('house_models_section_description', $validated['section_description']);
+        Setting::set(
+            'house_models_section_enabled',
+            $request->boolean('enabled', true),
+            'boolean'
+        );
         Setting::set(
             'house_models_section_videos',
             array_values(array_filter($validated['video_urls'] ?? [], fn ($url) => filled($url))),
@@ -316,6 +322,7 @@ class HouseModelController extends Controller
                 'house_models_section_description',
                 'Decouvrez nos modeles de maison, pensés pour allier style, confort et fonctionnalite dans chaque projet.'
             ),
+            'enabled' => Setting::get('house_models_section_enabled', true),
             'videos' => Setting::get('house_models_section_videos', [
                 'https://www.youtube.com/watch?v=tgbNymZ7vqY',
             ]),

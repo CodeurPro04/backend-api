@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\VisitorAccountCreated;
 use App\Models\ActivityLog;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReport;
@@ -16,6 +17,8 @@ use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -121,14 +124,28 @@ class ClientRequestController extends Controller
             'created_at' => now(),
         ]);
 
+        // Le mot de passe temporaire n'est jamais renvoye dans la reponse API :
+        // n'importe qui pourrait soumettre ce formulaire avec l'email de
+        // quelqu'un d'autre et recuperer ainsi les identifiants d'un compte
+        // cree en son nom. Il n'est communique que par email, donc uniquement
+        // au veritable proprietaire de l'adresse.
+        try {
+            Mail::to($user->email)->send(new VisitorAccountCreated($user, $defaultPassword));
+        } catch (\Throwable $e) {
+            Log::error('Envoi email compte visiteur echoue', [
+                'error' => $e->getMessage(),
+                'user_id' => $user->id,
+            ]);
+        }
+
         return [
             'user' => $user,
             'account' => [
                 'email' => $user->email,
-                'default_password' => $defaultPassword,
+                'password_sent_by_email' => true,
                 'requires_activation' => false,
             ],
-            'message' => 'Votre demande a bien ete envoyee et votre compte visiteur a ete cree.',
+            'message' => 'Votre demande a bien ete envoyee. Un compte visiteur a ete cree et vos identifiants viennent de vous etre envoyes par email.',
         ];
     }
 
@@ -258,10 +275,13 @@ class ClientRequestController extends Controller
         } catch (\Throwable $exception) {
             DB::rollBack();
 
+            Log::error('Erreur lors de la creation de la demande client', [
+                'error' => $exception->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'envoi de la demande.',
-                'error' => $exception->getMessage(),
             ], 500);
         }
     }

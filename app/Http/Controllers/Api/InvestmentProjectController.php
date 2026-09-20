@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\InvestmentProject;
 use App\Models\InvestmentProposal;
+use App\Models\Notification;
 use App\Support\CountryContext;
+use App\Support\Sanitizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class InvestmentProjectController extends Controller
@@ -15,7 +18,7 @@ class InvestmentProjectController extends Controller
     // Liste publique des projets
     public function index(Request $request)
     {
-        $query = InvestmentProject::with(['creator.approvedFinancialPartnership'])
+        $query = InvestmentProject::with(['creator.approvedFinancialPartnership', 'partner'])
             ->where('approval_status', 'approved');
 
         CountryContext::applyPriority($query, $request, 'investment_projects');
@@ -31,7 +34,7 @@ class InvestmentProjectController extends Controller
     // DÃ©tails d'un projet
     public function show($uuid)
     {
-        $project = InvestmentProject::with(['creator.approvedFinancialPartnership'])
+        $project = InvestmentProject::with(['creator.approvedFinancialPartnership', 'partner'])
             ->where('uuid', $uuid)
             ->where('approval_status', 'approved')
             ->firstOrFail();
@@ -170,13 +173,13 @@ class InvestmentProjectController extends Controller
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
-            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
+            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:10240',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_documents' => 'nullable|array',
             'remove_documents.*' => 'string',
             'remove_images' => 'nullable|array',
@@ -188,14 +191,16 @@ class InvestmentProjectController extends Controller
             'featured' => 'nullable|boolean',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $project = InvestmentProject::create([
             'uuid' => (string) Str::uuid(),
             'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'created_by' => $request->user()->id,
+            'partner_id' => $validated['partner_id'] ?? null,
             'title' => $validated['title'],
-            'description' => $validated['description'] ?? null,
+            'description' => Sanitizer::text($validated['description'] ?? null),
             'project_type' => $validated['project_type'] ?? null,
             'location' => $validated['location'] ?? null,
             'city' => $validated['city'] ?? null,
@@ -301,13 +306,13 @@ class InvestmentProjectController extends Controller
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
-            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
+            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:10240',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_documents' => 'nullable|array',
             'remove_documents.*' => 'string',
             'remove_images' => 'nullable|array',
@@ -319,6 +324,7 @@ class InvestmentProjectController extends Controller
             'featured' => 'nullable|boolean',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
         $payload = $validated;
         unset(
@@ -337,6 +343,9 @@ class InvestmentProjectController extends Controller
         }
         $payload['approval_status'] = 'approved';
         $payload['rejection_reason'] = null;
+        if (array_key_exists('description', $payload)) {
+            $payload['description'] = Sanitizer::text($payload['description']);
+        }
         $project->update($payload);
 
         $documentPaths = $validated['documents_path'] ?? ($project->documents_path ?? []);
@@ -442,7 +451,7 @@ class InvestmentProjectController extends Controller
     // AGENT - creer un projet d'investissement (en attente)
     public function agentCreate(Request $request)
     {
-        if ($request->user()?->agent_type && $request->user()->agent_type !== 'investissement') {
+        if ($request->user()?->agent_type !== 'investissement') {
             return response()->json([
                 'success' => false,
                 'message' => 'Acces reserve aux agents investissement.',
@@ -480,24 +489,26 @@ class InvestmentProjectController extends Controller
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
-            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
+            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:10240',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'featured' => 'nullable|boolean',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $project = InvestmentProject::create([
             'uuid' => (string) Str::uuid(),
             'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'created_by' => $request->user()->id,
+            'partner_id' => $validated['partner_id'] ?? null,
             'title' => $validated['title'],
-            'description' => $validated['description'] ?? null,
+            'description' => Sanitizer::text($validated['description'] ?? null),
             'project_type' => $validated['project_type'] ?? null,
             'location' => $validated['location'] ?? null,
             'city' => $validated['city'] ?? null,
@@ -566,7 +577,7 @@ class InvestmentProjectController extends Controller
     // AGENT - mise a jour d'un projet (repasse en attente)
     public function agentUpdate(Request $request, $uuid)
     {
-        if ($request->user()?->agent_type && $request->user()->agent_type !== 'investissement') {
+        if ($request->user()?->agent_type !== 'investissement') {
             return response()->json([
                 'success' => false,
                 'message' => 'Acces reserve aux agents investissement.',
@@ -608,13 +619,13 @@ class InvestmentProjectController extends Controller
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'documents' => 'nullable|array',
-            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx',
+            'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:10240',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_documents' => 'nullable|array',
             'remove_documents.*' => 'string',
             'remove_images' => 'nullable|array',
@@ -626,6 +637,7 @@ class InvestmentProjectController extends Controller
             'featured' => 'nullable|boolean',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $payload = $validated;
@@ -645,6 +657,9 @@ class InvestmentProjectController extends Controller
         }
         $payload['approval_status'] = 'pending';
         $payload['rejection_reason'] = null;
+        if (array_key_exists('description', $payload)) {
+            $payload['description'] = Sanitizer::text($payload['description']);
+        }
         $project->update($payload);
 
         $documentPaths = $validated['documents_path'] ?? ($project->documents_path ?? []);
@@ -724,7 +739,7 @@ class InvestmentProjectController extends Controller
     // AGENT - mes projets
     public function agentPublications(Request $request)
     {
-        if ($request->user()?->agent_type && $request->user()->agent_type !== 'investissement') {
+        if ($request->user()?->agent_type !== 'investissement') {
             return response()->json([
                 'success' => false,
                 'message' => 'Acces reserve aux agents investissement.',
@@ -761,35 +776,169 @@ class InvestmentProjectController extends Controller
         ]);
     }
 
-    // Admin - approuver
-    public function approveProposal($uuid)
+    // AGENT (investissement) - liste des propositions a traiter. Ce sont eux
+    // qui gerent ce volet au quotidien (l'admin garde aussi acces via
+    // allProposals/approveProposal/rejectProposal pour supervision).
+    public function agentProposals(Request $request)
     {
-        $proposal = InvestmentProposal::where('uuid', $uuid)->firstOrFail();
-        $proposal->update([
-            'status' => 'approved',
-            'reviewed_by' => auth()->id(),
-            'reviewed_at' => now()
-        ]);
+        if ($request->user()?->agent_type !== 'investissement') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acces reserve aux agents investissement.',
+            ], 403);
+        }
 
-        return response()->json(['success' => true]);
+        $query = InvestmentProposal::with(['investmentProject', 'user']);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->get('status'));
+        }
+
+        $proposals = $query->orderBy('created_at', 'desc')->paginate(20);
+
+        return response()->json([
+            'success' => true,
+            'data' => $proposals,
+        ]);
     }
 
-    // Admin - rejeter
-    public function rejectProposal(Request $request, $uuid)
+    /**
+     * Approuve une proposition (partagee entre l'agent investissement et
+     * l'admin) : met a jour le financement du projet en temps reel
+     * (current_funding/investors_count) pour que la barre "% finance"
+     * reflete les investissements reellement approuves, et notifie
+     * l'investisseur.
+     */
+    private function performProposalApproval(InvestmentProposal $proposal, int $reviewerId)
     {
-        $request->validate([
+        if ($proposal->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette proposition a deja ete traitee.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($proposal, $reviewerId) {
+            $proposal->update([
+                'status' => 'approved',
+                'reviewed_by' => $reviewerId,
+                'reviewed_at' => now(),
+            ]);
+
+            if ($proposal->investmentProject) {
+                $proposal->investmentProject->increment('current_funding', $proposal->amount);
+                $proposal->investmentProject->increment('investors_count');
+            }
+        });
+
+        try {
+            Notification::create([
+                'user_id' => $proposal->user_id,
+                'type' => 'investment_proposal_approved',
+                'title' => 'Proposition approuvee',
+                'message' => "Votre proposition d'investissement a ete approuvee.",
+                'data' => json_encode(['proposal_uuid' => $proposal->uuid]),
+            ]);
+        } catch (\Throwable $e) {
+            // Ne bloque jamais l'approbation si la notification echoue.
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $proposal->fresh(['investmentProject', 'user']),
+        ]);
+    }
+
+    /**
+     * Rejette une proposition (partagee entre l'agent investissement et
+     * l'admin) et notifie l'investisseur.
+     */
+    private function performProposalRejection(InvestmentProposal $proposal, string $reason, int $reviewerId)
+    {
+        if ($proposal->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette proposition a deja ete traitee.',
+            ], 422);
+        }
+
+        $proposal->update([
+            'status' => 'rejected',
+            'rejection_reason' => $reason,
+            'reviewed_by' => $reviewerId,
+            'reviewed_at' => now(),
+        ]);
+
+        try {
+            Notification::create([
+                'user_id' => $proposal->user_id,
+                'type' => 'investment_proposal_rejected',
+                'title' => 'Proposition rejetee',
+                'message' => "Votre proposition d'investissement a ete rejetee : {$reason}",
+                'data' => json_encode(['proposal_uuid' => $proposal->uuid]),
+            ]);
+        } catch (\Throwable $e) {
+            // Ne bloque jamais le rejet si la notification echoue.
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $proposal->fresh(['investmentProject', 'user']),
+        ]);
+    }
+
+    // AGENT (investissement) - approuver une proposition
+    public function agentApproveProposal(Request $request, $uuid)
+    {
+        if ($request->user()?->agent_type !== 'investissement') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acces reserve aux agents investissement.',
+            ], 403);
+        }
+
+        $proposal = InvestmentProposal::with('investmentProject')->where('uuid', $uuid)->firstOrFail();
+
+        return $this->performProposalApproval($proposal, $request->user()->id);
+    }
+
+    // AGENT (investissement) - rejeter une proposition
+    public function agentRejectProposal(Request $request, $uuid)
+    {
+        if ($request->user()?->agent_type !== 'investissement') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acces reserve aux agents investissement.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
             'rejection_reason' => 'required|string',
         ]);
 
         $proposal = InvestmentProposal::where('uuid', $uuid)->firstOrFail();
-        $proposal->update([
-            'status' => 'rejected',
-            'rejection_reason' => $request->rejection_reason,
-            'reviewed_by' => auth()->id(),
-            'reviewed_at' => now()
+
+        return $this->performProposalRejection($proposal, $validated['rejection_reason'], $request->user()->id);
+    }
+
+    // Admin - approuver (supervision ; le traitement au quotidien revient aux agents investissement)
+    public function approveProposal(Request $request, $uuid)
+    {
+        $proposal = InvestmentProposal::with('investmentProject')->where('uuid', $uuid)->firstOrFail();
+
+        return $this->performProposalApproval($proposal, $request->user()->id);
+    }
+
+    // Admin - rejeter (supervision ; le traitement au quotidien revient aux agents investissement)
+    public function rejectProposal(Request $request, $uuid)
+    {
+        $validated = $request->validate([
+            'rejection_reason' => 'required|string',
         ]);
 
-        return response()->json(['success' => true]);
+        $proposal = InvestmentProposal::where('uuid', $uuid)->firstOrFail();
+
+        return $this->performProposalRejection($proposal, $validated['rejection_reason'], $request->user()->id);
     }
 }
 

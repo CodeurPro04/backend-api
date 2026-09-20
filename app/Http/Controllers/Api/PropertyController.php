@@ -8,7 +8,9 @@ use App\Models\PropertyMedia;
 use App\Models\PropertyRequest;
 use App\Models\ActivityLog;
 use App\Support\CountryContext;
+use App\Support\Sanitizer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -114,6 +116,7 @@ class PropertyController extends Controller
             'features.*' => 'exists:property_features,id',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
             'status' => 'sometimes|string',
         ], $this->propertyMediaRules(false)));
 
@@ -134,6 +137,10 @@ class PropertyController extends Controller
                 $payload['render_3d_images'],
                 $payload['country_code']
             );
+
+            if (array_key_exists('description', $payload)) {
+                $payload['description'] = Sanitizer::text($payload['description']);
+            }
 
             if ($request->has('country_id') || $request->has('country_code')) {
                 $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
@@ -172,7 +179,7 @@ class PropertyController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Property::with(['propertyType', 'user', 'primaryImage', 'features'])
+            $query = Property::with(['propertyType', 'user', 'primaryImage', 'features', 'partner'])
                 ->approved();
 
             // Filtres
@@ -235,10 +242,10 @@ class PropertyController extends Controller
                 'data' => $properties
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la rÃ©cupÃ©ration des propriÃ©tÃ©s', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la rÃ©cupÃ©ration des propriÃ©tÃ©s',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la rÃ©cupÃ©ration des propriÃ©tÃ©s'
             ], 500);
         }
     }
@@ -328,10 +335,10 @@ class PropertyController extends Controller
                 'stats' => $stats,
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la rÃ©cupÃ©ration des propriÃ©tÃ©s', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la rÃ©cupÃ©ration des propriÃ©tÃ©s',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la rÃ©cupÃ©ration des propriÃ©tÃ©s'
             ], 500);
         }
     }
@@ -347,7 +354,8 @@ class PropertyController extends Controller
                 'user',
                 'agent',
                 'media',
-                'features'
+                'features',
+                'partner'
             ])->where('uuid', $uuid)
                 ->where('status', 'approved')
                 ->firstOrFail();
@@ -398,6 +406,7 @@ class PropertyController extends Controller
             'features.*' => 'exists:property_features,id',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ], $this->propertyMediaRules()));
 
         if ($validator->fails()) {
@@ -414,9 +423,10 @@ class PropertyController extends Controller
                 'slug' => Str::slug($request->title) . '-' . Str::random(6),
                 'country_id' => CountryContext::countryIdForUser($request->user(), $request),
                 'user_id' => $request->user()->id,
+                'partner_id' => $request->partner_id,
                 'property_type_id' => $request->property_type_id,
                 'title' => $request->title,
-                'description' => $request->description,
+                'description' => Sanitizer::text($request->description),
                 'transaction_type' => $request->transaction_type,
                 'price' => $request->price,
                 'currency' => $request->get('currency', 'XOF'),
@@ -463,10 +473,10 @@ class PropertyController extends Controller
                 'data' => $property->load(['propertyType', 'media', 'features'])
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la crÃ©ation de la propriÃ©tÃ©', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la crÃ©ation de la propriÃ©tÃ©',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la crÃ©ation de la propriÃ©tÃ©'
             ], 500);
         }
     }
@@ -571,7 +581,7 @@ class PropertyController extends Controller
                 ], 422);
             }
 
-            $property->update($request->only([
+            $updateData = $request->only([
                 'title',
                 'description',
                 'property_type_id',
@@ -593,7 +603,11 @@ class PropertyController extends Controller
                 'quartier',
                 'latitude',
                 'longitude',
-            ]));
+            ]);
+            if (array_key_exists('description', $updateData)) {
+                $updateData['description'] = Sanitizer::text($updateData['description']);
+            }
+            $property->update($updateData);
 
             // Mettre Ã  jour les features si fournies
             if ($request->has('features')) {
@@ -783,6 +797,7 @@ class PropertyController extends Controller
             'features.*' => 'exists:property_features,id',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ], $this->propertyMediaRules()));
 
         if ($validator->fails()) {
@@ -814,9 +829,10 @@ class PropertyController extends Controller
                 'country_id' => CountryContext::countryIdForUser($propertyRequest->user, $request) ?: $propertyRequest->country_id,
                 'user_id' => $propertyRequest->user_id,
                 'agent_id' => $request->user()->id,
+                'partner_id' => $request->partner_id,
                 'property_type_id' => $request->property_type_id,
                 'title' => $request->title,
-                'description' => $request->description,
+                'description' => Sanitizer::text($request->description),
                 'agent_comment' => $request->agent_comment,
                 'transaction_type' => $request->transaction_type,
                 'price' => $request->price,
@@ -867,10 +883,10 @@ class PropertyController extends Controller
                 'data' => $property->load(['propertyType', 'media', 'features'])
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la creation', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la creation',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la creation'
             ], 500);
         }
     }
@@ -991,10 +1007,10 @@ class PropertyController extends Controller
                 'data' => $properties
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la recuperation des proprietes', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la recuperation des proprietes',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la recuperation des proprietes'
             ], 500);
         }
     }
@@ -1028,6 +1044,7 @@ class PropertyController extends Controller
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
             'country_id' => 'nullable|exists:countries,id',
+            'partner_id' => 'nullable|exists:partnerships,id',
             'features' => 'nullable|array',
             'features.*' => 'exists:property_features,id',
         ], $this->propertyMediaRules(false)));
@@ -1067,7 +1084,12 @@ class PropertyController extends Controller
                 'quartier',
                 'latitude',
                 'longitude',
+                'partner_id',
             ]);
+
+            if (array_key_exists('description', $payload)) {
+                $payload['description'] = Sanitizer::text($payload['description']);
+            }
 
             if ($request->has('country_id') || $request->has('country_code')) {
                 $payload['country_id'] = CountryContext::resolveIdFromRequest($request);
@@ -1389,10 +1411,10 @@ class PropertyController extends Controller
                 'data' => $properties
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la recuperation des proprietes', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la recuperation des proprietes',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la recuperation des proprietes'
             ], 500);
         }
     }

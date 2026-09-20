@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Message;
 use App\Models\Notification;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -48,9 +49,17 @@ class MessageController extends Controller
     {
         $root = $parentMessage->threadRoot();
 
+        // Le destinataire est l'autre participant du fil (et non systematiquement
+        // l'auteur du message precis auquel on repond) : dans une vraie
+        // conversation, chaque cote peut enchainer plusieurs messages avant que
+        // l'autre ne reponde, donc "l'expediteur du message parent" ne designe
+        // pas forcement le bon destinataire.
+        $recipientId = $root->threadParticipantIds()
+            ->first(fn ($id) => $id !== $senderId) ?? $parentMessage->sender_id;
+
         return Message::create([
             'sender_id' => $senderId,
-            'recipient_id' => $parentMessage->sender_id,
+            'recipient_id' => $recipientId,
             'property_id' => $root->property_id,
             'subject' => $root->subject,
             'message' => $this->sanitizeContent($content),
@@ -58,11 +67,11 @@ class MessageController extends Controller
         ]);
     }
 
-    private function notifyReply(Message $parentMessage, Message $reply, $actor): void
+    private function notifyReply(Message $reply, $actor): void
     {
         try {
             Notification::create([
-                'user_id' => $parentMessage->sender_id,
+                'user_id' => $reply->recipient_id,
                 'type' => 'message_reply',
                 'title' => 'Nouvelle reponse',
                 'message' => "Vous avez recu une reponse de {$actor->full_name}",
@@ -87,6 +96,24 @@ class MessageController extends Controller
             return true;
         }
         return $message->threadParticipantIds()->contains($userId);
+    }
+
+    /**
+     * Marque comme lus tous les messages du fil dont l'utilisateur est
+     * destinataire (pas seulement la racine), pour qu'ouvrir une conversation
+     * fasse disparaitre l'indicateur "non lu" sur l'ensemble de l'echange,
+     * comme dans une vraie messagerie.
+     */
+    private function markThreadAsRead($thread, ?int $userId)
+    {
+        if (!$userId) {
+            return $thread;
+        }
+        $thread->where('recipient_id', $userId)
+            ->where('is_read', false)
+            ->each(fn ($item) => $item->markAsRead());
+
+        return $thread;
     }
 
     private function applyListFilters($query, Request $request)
@@ -135,12 +162,96 @@ class MessageController extends Controller
     }
 
     /**
+     * Liste des agents actifs avec qui n'importe quel utilisateur connecte
+     * peut demarrer une conversation (bouton "nouvelle conversation").
+     */
+    public function messageableAgents(Request $request)
+    {
+        try {
+            $agents = User::whereHas('role', function ($query) {
+                $query->where('slug', 'agent');
+            })
+                ->where('is_active', true)
+                ->where('id', '!=', $request->user()->id)
+                ->orderBy('first_name')
+                ->get(['id', 'uuid', 'first_name', 'last_name', 'avatar', 'agent_type'])
+                ->map(function ($agent) {
+                    return [
+                        'id' => $agent->id,
+                        'uuid' => $agent->uuid,
+                        'full_name' => trim($agent->first_name . ' ' . $agent->last_name),
+                        'avatar' => $agent->avatar,
+                        'agent_type' => $agent->agent_type,
+                    ];
+                });
+
+            return response()->json(['success' => true, 'data' => $agents]);
+        } catch (\Exception $e) {
+            Log::error('Messageable agents list failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation des agents'
+            ], 500);
+        }
+    }
+
+    /**
+     * Annuaire complet pour demarrer une conversation depuis le backoffice :
+     * n'importe quel utilisateur actif (agent, admin, gestionnaire, partenaire,
+     * visiteur, proprietaire, investisseur...), avec recherche par nom et
+     * filtre optionnel par role.
+     */
+    public function messageableUsers(Request $request)
+    {
+        try {
+            $query = User::with('role')
+                ->where('is_active', true)
+                ->where('id', '!=', $request->user()->id);
+
+            if ($request->filled('search')) {
+                $search = $request->get('search');
+                $query->where(function ($q) use ($search) {
+                    $q->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            }
+
+            if ($request->filled('role')) {
+                $query->whereHas('role', fn ($q) => $q->where('slug', $request->get('role')));
+            }
+
+            $users = $query->orderBy('first_name')
+                ->limit(300)
+                ->get(['id', 'uuid', 'first_name', 'last_name', 'avatar', 'agent_type', 'role_id'])
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'uuid' => $user->uuid,
+                        'full_name' => trim($user->first_name . ' ' . $user->last_name),
+                        'avatar' => $user->avatar,
+                        'agent_type' => $user->agent_type,
+                        'role' => $user->role ? ['slug' => $user->role->slug, 'name' => $user->role->name] : null,
+                    ];
+                });
+
+            return response()->json(['success' => true, 'data' => $users]);
+        } catch (\Exception $e) {
+            Log::error('Messageable users list failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la recuperation des utilisateurs'
+            ], 500);
+        }
+    }
+
+    /**
      * Liste des messages de l'utilisateur
      */
     public function index(Request $request)
     {
         try {
-            $query = Message::with(['sender', 'recipient', 'property'])
+            $query = Message::with(['sender.role', 'recipient.role', 'property'])
                 ->forUser($request->user()->id);
             $this->applyListFilters($query, $request);
             $perPage = min((int) $request->get('per_page', 20), 100);
@@ -168,7 +279,7 @@ class MessageController extends Controller
         $validator = Validator::make($request->all(), [
             'recipient_id' => 'required|exists:users,id',
             'property_id' => 'nullable|exists:properties,id',
-            'subject' => 'required|string|max:' . self::SUBJECT_MAX_LENGTH,
+            'subject' => 'nullable|string|max:' . self::SUBJECT_MAX_LENGTH,
             'message' => 'required|string|max:' . self::MESSAGE_MAX_LENGTH,
         ]);
 
@@ -187,12 +298,17 @@ class MessageController extends Controller
         }
 
         try {
+            $content = $this->sanitizeContent($request->message);
+            $subject = $request->filled('subject')
+                ? $this->sanitizeContent($request->subject)
+                : $this->deriveSubject($content);
+
             $message = Message::create([
                 'sender_id' => $request->user()->id,
                 'recipient_id' => $request->recipient_id,
                 'property_id' => $request->property_id,
-                'subject' => $this->sanitizeContent($request->subject),
-                'message' => $this->sanitizeContent($request->message),
+                'subject' => $subject,
+                'message' => $content,
             ]);
 
             try {
@@ -231,7 +347,7 @@ class MessageController extends Controller
     public function show(Request $request, $uuid)
     {
         try {
-            $message = Message::with(['sender', 'recipient', 'property'])
+            $message = Message::with(['sender.role', 'recipient.role', 'property'])
                 ->where('uuid', $uuid)
                 ->firstOrFail();
 
@@ -242,14 +358,12 @@ class MessageController extends Controller
                 ], 403);
             }
 
-            if ($message->recipient_id === $request->user()->id) {
-                $message->markAsRead();
-            }
+            $thread = $this->markThreadAsRead($message->threadMessages(), $request->user()?->id);
 
             return response()->json([
                 'success' => true,
                 'data' => $message,
-                'thread' => $message->threadMessages(),
+                'thread' => $thread,
             ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -293,7 +407,7 @@ class MessageController extends Controller
             }
 
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-            $this->notifyReply($parentMessage, $reply, $request->user());
+            $this->notifyReply($reply, $request->user());
 
             return response()->json([
                 'success' => true,
@@ -321,8 +435,8 @@ class MessageController extends Controller
     public function agentMessages(Request $request)
     {
         try {
-            $query = Message::with(['sender', 'property'])
-                ->where('recipient_id', $request->user()->id);
+            $query = Message::with(['sender.role', 'recipient.role', 'property'])
+                ->forUser($request->user()->id);
             $this->applyListFilters($query, $request);
             $perPage = min((int) $request->get('per_page', 20), 100);
             $messages = $query->orderBy('is_read', 'asc')
@@ -360,12 +474,17 @@ class MessageController extends Controller
         }
 
         try {
-            $parentMessage = Message::where('uuid', $uuid)
-                ->where('recipient_id', $request->user()->id)
-                ->firstOrFail();
+            $parentMessage = Message::where('uuid', $uuid)->firstOrFail();
+
+            if (!$this->assertParticipant($parentMessage, $request->user()?->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Acces non autorise a ce message.'
+                ], 403);
+            }
 
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-            $this->notifyReply($parentMessage, $reply, $request->user());
+            $this->notifyReply($reply, $request->user());
 
             return response()->json([
                 'success' => true,
@@ -422,8 +541,8 @@ class MessageController extends Controller
     public function ownerMessages(Request $request)
     {
         try {
-            $query = Message::with(['sender', 'property'])
-                ->where('recipient_id', $request->user()->id);
+            $query = Message::with(['sender.role', 'recipient.role', 'property'])
+                ->forUser($request->user()->id);
             $this->applyListFilters($query, $request);
             $perPage = min((int) $request->get('per_page', 20), 100);
             $messages = $query->orderBy('is_read', 'asc')
@@ -446,17 +565,23 @@ class MessageController extends Controller
     public function ownerShow(Request $request, $uuid)
     {
         try {
-            $message = Message::with(['sender', 'property'])
+            $message = Message::with(['sender.role', 'recipient.role', 'property'])
                 ->where('uuid', $uuid)
-                ->where('recipient_id', $request->user()->id)
                 ->firstOrFail();
 
-            $message->markAsRead();
+            if (!$this->assertParticipant($message, $request->user()?->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Acces non autorise a ce message.'
+                ], 403);
+            }
+
+            $thread = $this->markThreadAsRead($message->threadMessages(), $request->user()?->id);
 
             return response()->json([
                 'success' => true,
                 'data' => $message,
-                'thread' => $message->threadMessages(),
+                'thread' => $thread,
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -486,12 +611,17 @@ class MessageController extends Controller
         }
 
         try {
-            $parentMessage = Message::where('uuid', $uuid)
-                ->where('recipient_id', $request->user()->id)
-                ->firstOrFail();
+            $parentMessage = Message::where('uuid', $uuid)->firstOrFail();
+
+            if (!$this->assertParticipant($parentMessage, $request->user()?->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Acces non autorise a ce message.'
+                ], 403);
+            }
 
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-            $this->notifyReply($parentMessage, $reply, $request->user());
+            $this->notifyReply($reply, $request->user());
 
             return response()->json([
                 'success' => true,
@@ -571,7 +701,7 @@ class MessageController extends Controller
     public function adminIndex(Request $request)
     {
         try {
-            $query = Message::with(['sender', 'recipient', 'property']);
+            $query = Message::with(['sender.role', 'recipient.role', 'property']);
             $this->applyListFilters($query, $request);
             $this->applyArchiveFilter($query, $request);
             $perPage = min((int) $request->get('per_page', 20), 100);
@@ -599,17 +729,19 @@ class MessageController extends Controller
         }
     }
 
-    public function adminShow($uuid)
+    public function adminShow(Request $request, $uuid)
     {
         try {
-            $message = Message::with(['sender', 'recipient', 'property'])
+            $message = Message::with(['sender.role', 'recipient.role', 'property'])
                 ->where('uuid', $uuid)
                 ->firstOrFail();
+
+            $thread = $this->markThreadAsRead($message->threadMessages(), $request->user()?->id);
 
             return response()->json([
                 'success' => true,
                 'data' => $message,
-                'thread' => $message->threadMessages(),
+                'thread' => $thread,
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -848,7 +980,7 @@ class MessageController extends Controller
         try {
             $parentMessage = Message::where('uuid', $uuid)->firstOrFail();
             $reply = $this->createReplyMessage($request->user()->id, $parentMessage, $request->message);
-            $this->notifyReply($parentMessage, $reply, $request->user());
+            $this->notifyReply($reply, $request->user());
 
             return response()->json([
                 'success' => true,

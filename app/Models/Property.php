@@ -12,7 +12,7 @@ class Property extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'uuid', 'country_id', 'user_id', 'agent_id', 'property_type_id', 'title', 'slug',
+        'uuid', 'country_id', 'user_id', 'agent_id', 'partner_id', 'property_type_id', 'title', 'slug',
         'description', 'agent_comment', 'transaction_type', 'price', 'currency', 'negotiable',
         'surface_area', 'land_area', 'bedrooms', 'bathrooms', 'parking_spaces',
         'floor_number', 'total_floors', 'year_built', 'address', 'city',
@@ -67,6 +67,11 @@ class Property extends Model
     public function agent()
     {
         return $this->belongsTo(User::class, 'agent_id');
+    }
+
+    public function partner()
+    {
+        return $this->belongsTo(Partnership::class, 'partner_id');
     }
 
     public function validator()

@@ -11,7 +11,7 @@ class Partnership extends Model
     use HasFactory;
 
     protected $fillable = [
-        'uuid', 'country_id', 'user_id', 'company_name', 'company_type',
+        'uuid', 'country_id', 'user_id', 'company_name', 'company_type', 'legal_specialty',
         'registration_number', 'tax_number', 'address', 'city',
         'phone', 'email', 'website', 'logo_path', 'description',
         'services', 'certifications',

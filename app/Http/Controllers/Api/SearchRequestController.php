@@ -492,10 +492,10 @@ class SearchRequestController extends Controller
                 'data' => $requests
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur historique manager search requests', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur',
-                'error' => $e->getMessage()
+                'message' => 'Erreur'
             ], 500);
         }
     }

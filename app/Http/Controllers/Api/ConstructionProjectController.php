@@ -11,6 +11,7 @@ use App\Models\Notification;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\CountryContext;
+use App\Support\Sanitizer;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 
@@ -19,7 +20,8 @@ class ConstructionProjectController extends Controller
     // Liste publique des projets de construction
     public function publicIndex(Request $request)
     {
-        $query = ConstructionProject::where('status', 'published')
+        $query = ConstructionProject::with(['partner'])
+            ->where('status', 'published')
             ->where('is_publication', true);
 
         CountryContext::applyPriority($query, $request, 'construction_projects');
@@ -34,7 +36,8 @@ class ConstructionProjectController extends Controller
     // Details public d'un projet
     public function publicShow($uuid)
     {
-        $project = ConstructionProject::where('uuid', $uuid)
+        $project = ConstructionProject::with(['partner'])
+            ->where('uuid', $uuid)
             ->where('status', 'published')
             ->where('is_publication', true)
             ->firstOrFail();
@@ -127,7 +130,7 @@ class ConstructionProjectController extends Controller
             'country_id' => CountryContext::countryIdForUser($user, $request),
             'user_id' => $user->id,
             'title' => $validated['title'] ?? 'Demande de construction',
-            'description' => $validated['description'],
+            'description' => Sanitizer::text($validated['description']),
             'project_type' => 'residential',
             'budget_min' => $validated['budget_min'] ?? null,
             'budget_max' => $validated['budget_max'] ?? null,
@@ -343,25 +346,27 @@ class ConstructionProjectController extends Controller
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'plans_path' => 'nullable|array',
             'plans_path.*' => 'nullable|string',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $project = ConstructionProject::create([
             'uuid' => (string) Str::uuid(),
             'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'user_id' => $request->user()->id,
+            'partner_id' => $validated['partner_id'] ?? null,
             'title' => $validated['title'],
-            'description' => $validated['description'],
+            'description' => Sanitizer::text($validated['description']),
             'project_type' => 'residential',
             'budget_min' => $validated['budget_min'] ?? null,
             'budget_max' => $validated['budget_max'] ?? null,
@@ -441,23 +446,24 @@ class ConstructionProjectController extends Controller
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'remove_images' => 'nullable|array',
             'remove_images.*' => 'string',
             'plans_path' => 'nullable|array',
             'plans_path.*' => 'nullable|string',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_plans' => 'nullable|array',
             'remove_plans.*' => 'string',
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $payload = $validated;
@@ -475,6 +481,9 @@ class ConstructionProjectController extends Controller
         }
         if (array_key_exists('status', $payload) && $payload['status'] !== 'rejected') {
             $payload['rejection_reason'] = null;
+        }
+        if (array_key_exists('description', $payload)) {
+            $payload['description'] = Sanitizer::text($payload['description']);
         }
         $project->update($payload);
 
@@ -535,7 +544,7 @@ class ConstructionProjectController extends Controller
     // AGENT - publier un projet de construction (en attente)
     public function agentCreate(Request $request)
     {
-        if ($request->user()?->agent_type && $request->user()->agent_type !== 'constructeur') {
+        if ($request->user()?->agent_type !== 'constructeur') {
             return response()->json([
                 'success' => false,
                 'message' => 'Acces reserve aux agents constructeurs.',
@@ -554,25 +563,27 @@ class ConstructionProjectController extends Controller
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'plans_path' => 'nullable|array',
             'plans_path.*' => 'nullable|string',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $project = ConstructionProject::create([
             'uuid' => (string) Str::uuid(),
             'country_id' => CountryContext::countryIdForUser($request->user(), $request),
             'user_id' => $request->user()->id,
+            'partner_id' => $validated['partner_id'] ?? null,
             'title' => $validated['title'],
-            'description' => $validated['description'],
+            'description' => Sanitizer::text($validated['description']),
             'project_type' => 'residential',
             'budget_min' => $validated['budget_min'] ?? null,
             'budget_max' => $validated['budget_max'] ?? null,
@@ -624,7 +635,7 @@ class ConstructionProjectController extends Controller
     // AGENT - mettre a jour son projet (repasse en attente)
     public function agentUpdate(Request $request, $uuid)
     {
-        if ($request->user()?->agent_type && $request->user()->agent_type !== 'constructeur') {
+        if ($request->user()?->agent_type !== 'constructeur') {
             return response()->json([
                 'success' => false,
                 'message' => 'Acces reserve aux agents constructeurs.',
@@ -647,23 +658,24 @@ class ConstructionProjectController extends Controller
             'images_path' => 'nullable|array',
             'images_path.*' => 'nullable|string',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
             'remove_images' => 'nullable|array',
             'remove_images.*' => 'string',
             'plans_path' => 'nullable|array',
             'plans_path.*' => 'nullable|string',
             'plans' => 'nullable|array',
-            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'plans.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_plans' => 'nullable|array',
             'remove_plans.*' => 'string',
             'render_3d_path' => 'nullable|array',
             'render_3d_path.*' => 'nullable|string',
             'render_3d' => 'nullable|array',
-            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf',
+            'render_3d.*' => 'file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
             'remove_render_3d' => 'nullable|array',
             'remove_render_3d.*' => 'string',
             'country_id' => 'nullable|exists:countries,id',
             'country_code' => 'nullable|exists:countries,code',
+            'partner_id' => 'nullable|exists:partnerships,id',
         ]);
 
         $payload = $validated;
@@ -681,6 +693,9 @@ class ConstructionProjectController extends Controller
         }
         $payload['status'] = 'submitted';
         $payload['is_publication'] = true;
+        if (array_key_exists('description', $payload)) {
+            $payload['description'] = Sanitizer::text($payload['description']);
+        }
         $project->update($payload);
 
         $imagePaths = $validated['images_path'] ?? ($project->images_path ?? []);
@@ -740,7 +755,7 @@ class ConstructionProjectController extends Controller
     // AGENT - mes projets de construction publies/en attente
     public function agentPublications(Request $request)
     {
-        if ($request->user()?->agent_type && $request->user()->agent_type !== 'constructeur') {
+        if ($request->user()?->agent_type !== 'constructeur') {
             return response()->json([
                 'success' => false,
                 'message' => 'Acces reserve aux agents constructeurs.',

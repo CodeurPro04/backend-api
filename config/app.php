@@ -56,6 +56,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend (SPA) URL
+    |--------------------------------------------------------------------------
+    |
+    | Utilise pour construire des liens pointant vers le site public (ex :
+    | le lien de reinitialisation de mot de passe), car cette application
+    | est une API pure sans vues web.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'https://africabuildinvest.com'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

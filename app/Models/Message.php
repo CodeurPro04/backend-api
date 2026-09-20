@@ -125,7 +125,7 @@ class Message extends Model
         $guard = 0;
 
         while ($frontierIds->isNotEmpty() && $guard < 100) {
-            $children = static::with(['sender', 'recipient'])
+            $children = static::with(['sender.role', 'recipient.role'])
                 ->whereIn('parent_message_id', $frontierIds)
                 ->get();
             if ($children->isEmpty()) {

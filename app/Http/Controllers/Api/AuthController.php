@@ -9,6 +9,8 @@ use App\Models\ActivityLog;
 use App\Support\CountryContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Password as PasswordBroker;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\Password;
 
@@ -58,7 +60,11 @@ class AuthController extends Controller
             'email'       => 'required|email|unique:users,email',
             'phone'       => 'nullable|string|max:20',
             'password'    => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()],
-            'role'        => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise,gestionnaire,administrateur',
+            // "gestionnaire" et "admin" sont volontairement exclus : ce sont des roles
+            // de staff qui ne doivent jamais pouvoir etre auto-attribues via
+            // l'inscription publique, uniquement crees par un administrateur
+            // depuis le backoffice (Admin/UserManagementController).
+            'role'        => 'required|in:visiteur,proprietaire,agent,investisseur,entreprise',
             'agent_type'  => 'nullable|in:constructeur,immobilier,investissement',
             'country_id'  => 'nullable|exists:countries,id',
             'country_code'=> 'nullable|exists:countries,code',
@@ -135,6 +141,8 @@ class AuthController extends Controller
             // Creer un token uniquement pour les comptes actifs
             $token = null;
             if ($user->is_active) {
+                // Session unique : garantit qu'un seul jeton API est actif par compte.
+                $user->tokens()->delete();
                 $token = $user->createToken('auth_token')->plainTextToken;
             }
 
@@ -149,10 +157,10 @@ class AuthController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
+            Log::error('Erreur lors de l\'inscription', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de l\'inscription',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de l\'inscription'
             ], 500);
         }
     }
@@ -183,6 +191,17 @@ public function login(Request $request)
             ], 401);
         }
 
+        // Un compte en attente d'activation (agent/proprietaire/entreprise fraichement
+        // inscrit) ne doit recevoir aucun jeton tant qu'un admin ne l'a pas active :
+        // sinon le controle d'activation est totalement contournable via /login.
+        if (!$user->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' => "Votre compte est en attente d'activation par un administrateur.",
+                'requires_activation' => true,
+            ], 403);
+        }
+
         // Mettre à jour le dernier login
         $user->update(['last_login_at' => now()]);
 
@@ -196,19 +215,87 @@ public function login(Request $request)
             'created_at' => now(),
         ]);
 
+        // Session unique : toute nouvelle connexion invalide les sessions
+        // precedentes de ce compte (un seul appareil/onglet connecte a la fois).
+        $user->tokens()->delete();
+
         // Créer un token
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
             'success' => true,
-            'message' => $user->is_active
-                ? 'Connexion réussie'
-                : 'Connexion réussie. Votre compte est en attente d\'activation par un administrateur.',
+            'message' => 'Connexion réussie',
             'data' => [
                 'user' => $this->serializeUser($user),
                 'token' => $token,
-                'requires_activation' => !$user->is_active,
             ]
+        ]);
+    }
+
+    /**
+     * Demande de reinitialisation de mot de passe : envoie un email contenant
+     * un lien signe vers le site public si l'adresse correspond a un compte.
+     * La reponse est volontairement identique que l'email existe ou non,
+     * pour ne pas permettre l'enumeration de comptes.
+     */
+    public function forgotPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        PasswordBroker::sendResetLink($request->only('email'));
+
+        return response()->json([
+            'success' => true,
+            'message' => "Si un compte existe avec cette adresse, un email de reinitialisation vient d'etre envoye.",
+        ]);
+    }
+
+    /**
+     * Reinitialisation effective du mot de passe a partir du jeton recu par email.
+     */
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => 'required|string',
+            'email' => 'required|email',
+            'password' => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $status = PasswordBroker::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function (User $user, string $password) {
+                $user->update(['password' => Hash::make($password)]);
+                // Reinitialiser le mot de passe invalide toutes les sessions actives.
+                $user->tokens()->delete();
+            }
+        );
+
+        if ($status !== PasswordBroker::PASSWORD_RESET) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ce lien de reinitialisation est invalide ou a expire.',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mot de passe reinitialise avec succes. Vous pouvez vous connecter.',
         ]);
     }
 
@@ -316,10 +403,10 @@ public function login(Request $request)
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la mise à jour du profil', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la mise à jour',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la mise à jour'
             ], 500);
         }
     }
@@ -354,6 +441,14 @@ public function login(Request $request)
             $user->update([
                 'password' => Hash::make($request->new_password)
             ]);
+
+            // Invalide toutes les autres sessions actives (garde uniquement celle
+            // en cours) : si un jeton avait fuite, changer le mot de passe le
+            // revoque immediatement.
+            $currentToken = $user->currentAccessToken();
+            if ($currentToken) {
+                $user->tokens()->where('id', '!=', $currentToken->id)->delete();
+            }
 
             // Log l'activité
             ActivityLog::create([

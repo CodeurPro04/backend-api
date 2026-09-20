@@ -47,7 +47,10 @@ return [
     |
     */
 
-    'expiration' => null,
+    // 30 jours par defaut : un jeton vole/oublie ne reste pas valide indefiniment.
+    // Chaque connexion revoque de toute facon les jetons precedents (session unique),
+    // ceci borne en plus la duree de vie maximale d'un jeton actif.
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION', 60 * 24 * 30),
 
     /*
     |--------------------------------------------------------------------------

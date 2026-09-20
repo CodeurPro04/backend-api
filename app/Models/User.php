@@ -21,6 +21,10 @@ class User extends Authenticatable
 
     protected $hidden = ['password', 'remember_token'];
 
+    // full_name doit apparaitre partout ou un utilisateur est serialise (ex: sender/recipient
+    // d'un message), pas seulement la ou un controleur le reconstruit manuellement.
+    protected $appends = ['full_name'];
+
     protected $casts = [
         'email_verified_at' => 'datetime',
         'phone_verified_at' => 'datetime',

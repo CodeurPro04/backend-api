@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\VisitorAccountCreated;
 use App\Models\ActivityLog;
 use App\Models\Partnership;
 use App\Models\Role;
 use App\Models\User;
 use App\Support\CountryContext;
+use App\Support\Sanitizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -25,7 +29,7 @@ class PartnershipController extends Controller
         return collect($catalog)
             ->map(function ($item) {
                 $title = trim((string) data_get($item, 'title', ''));
-                $description = trim((string) data_get($item, 'description', ''));
+                $description = Sanitizer::text((string) data_get($item, 'description', ''));
 
                 if ($title === '' && $description === '') {
                     return null;
@@ -51,6 +55,7 @@ class PartnershipController extends Controller
         return [
             'company_name' => 'required|string|max:255',
             'company_type' => 'required|string|max:255',
+            'legal_specialty' => 'nullable|string|max:255',
             'registration_number' => 'nullable|string|max:255',
             'tax_number' => 'nullable|string|max:255',
             'address' => 'nullable|string|max:255',
@@ -82,6 +87,7 @@ class PartnershipController extends Controller
             'user_id' => $userId,
             'company_name' => $validated['company_name'],
             'company_type' => $validated['company_type'],
+            'legal_specialty' => $validated['legal_specialty'] ?? null,
             'registration_number' => $validated['registration_number'] ?? null,
             'tax_number' => $validated['tax_number'] ?? null,
             'address' => $validated['address'] ?? null,
@@ -90,7 +96,7 @@ class PartnershipController extends Controller
             'email' => $validated['email'] ?? null,
             'website' => $validated['website'] ?? null,
             'logo_path' => $logoPath,
-            'description' => $validated['description'] ?? null,
+            'description' => Sanitizer::text($validated['description'] ?? null),
             'services' => $validated['services'] ?? [],
             'certifications' => $validated['certifications'] ?? [],
             'status' => 'pending',
@@ -150,13 +156,26 @@ class PartnershipController extends Controller
 
             DB::commit();
 
+            // Le mot de passe temporaire n'est jamais renvoye dans la reponse API
+            // (voir ClientRequestController::createVisitorAccount pour le meme
+            // raisonnement) : il n'est communique que par email, au veritable
+            // proprietaire de l'adresse fournie.
+            try {
+                Mail::to($user->email)->send(new VisitorAccountCreated($user, $defaultPassword));
+            } catch (\Throwable $mailException) {
+                Log::error('Envoi email compte partenaire echoue', [
+                    'error' => $mailException->getMessage(),
+                    'user_id' => $user->id,
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Demande partenaire envoyee et compte entreprise cree.',
+                'message' => 'Demande partenaire envoyee et compte entreprise cree. Vos identifiants viennent de vous etre envoyes par email.',
                 'data' => $application,
                 'account' => [
                     'email' => $user->email,
-                    'default_password' => $defaultPassword,
+                    'password_sent_by_email' => true,
                     'requires_activation' => true,
                 ],
             ], 201);
@@ -167,10 +186,13 @@ class PartnershipController extends Controller
                 Storage::disk('public')->delete($logoPath);
             }
 
+            Log::error('Erreur lors de la creation du compte partenaire', [
+                'error' => $exception->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la creation du compte partenaire.',
-                'error' => $exception->getMessage(),
             ], 500);
         }
     }
@@ -232,6 +254,9 @@ class PartnershipController extends Controller
         $payload['approved_by'] = null;
         $payload['approved_at'] = null;
         $payload['rejection_reason'] = null;
+        if (array_key_exists('description', $payload)) {
+            $payload['description'] = Sanitizer::text($payload['description']);
+        }
 
         $application->update($payload);
         $user->update(['is_active' => false]);
@@ -300,6 +325,27 @@ class PartnershipController extends Controller
         ]);
     }
 
+    // PUBLIC - Liste allegee des partenaires approuves, pour un menu deroulant
+    // de rattachement (bien immobilier / projet construction / projet
+    // investissement). Filtrable par type (immobilier | constructeur |
+    // investisseur) ; sans filtre, retourne tous les partenaires approuves.
+    public function lookup(Request $request)
+    {
+        $query = Partnership::where('status', 'approved')
+            ->select(['id', 'uuid', 'company_name', 'company_type', 'logo_path']);
+
+        if ($request->filled('type')) {
+            $query->whereRaw('LOWER(company_type) = ?', [strtolower(trim($request->input('type')))]);
+        }
+
+        $partners = $query->orderBy('company_name')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $partners,
+        ]);
+    }
+
     // PUBLIC - Detail d'un partenaire approuve
     public function publicShow($uuid)
     {
@@ -360,7 +406,7 @@ class PartnershipController extends Controller
 
         $payload = [
             'profile_title' => $validated['profile_title'] ?? null,
-            'profile_description' => $validated['profile_description'] ?? null,
+            'profile_description' => Sanitizer::text($validated['profile_description'] ?? null),
             'service_offers' => collect($validated['service_offers'] ?? [])
                 ->map(fn ($item) => trim((string) $item))
                 ->filter()

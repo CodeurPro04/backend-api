@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Role;
 use App\Support\CountryContext;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class UserManagementController extends Controller
@@ -201,10 +202,10 @@ class UserManagementController extends Controller
                 'data' => $roles
             ]);
         } catch (\Exception $e) {
+            Log::error('Erreur lors de la récupération des rôles', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de la récupération des rôles',
-                'error' => $e->getMessage()
+                'message' => 'Erreur lors de la récupération des rôles'
             ], 500);
         }
     }

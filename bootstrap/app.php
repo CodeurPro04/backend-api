@@ -17,6 +17,23 @@ return Application::configure(basePath: dirname(__DIR__))
     //     \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
     // ]);
 
+    // Limite par defaut sur TOUTES les routes /api (60 req/min), en plus des
+    // limites plus strictes definies specifiquement (login, register, ai/chat...
+    // via RateLimiter::for dans AppServiceProvider). Sans ceci, seules les routes
+    // explicitement throttlees etaient protegees ; le reste de l'API n'avait
+    // aucune limite.
+    $middleware->throttleApi();
+
+    $middleware->api(append: [
+        \App\Http\Middleware\SecurityHeaders::class,
+    ]);
+
+    // Le VPS est deploye derriere un reverse proxy local (Nginx) : sans faire
+    // confiance au proxy, $request->ip() (utilise par le rate limiting ci-dessus
+    // et par les logs d'activite) refleterait l'IP du proxy plutot que celle du
+    // client, ce qui rendrait toute limite par IP inefficace.
+    $middleware->trustProxies(at: '*');
+
     $middleware->alias([
         'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
         'checkrole' => \App\Http\Middleware\CheckRole::class,
